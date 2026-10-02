@@ -28,19 +28,31 @@ champion before you've picked, it suggests easy **counter-picks**.
 - **My champion pool**: add the champions you play. Counters from your pool
   are shown first and highlighted (or, if you prefer, only your pool).
 - **Import into League**: one click (or automatically when you lock in)
-  creates the rune page, sets your summoner spells and adds an in-game
-  **item set**. Turn auto-import on or off in Settings.
+  creates the rune page and adds an in-game **item set**. Turn auto-import
+  on or off in Settings. Summoner spells are only a recommendation: the app
+  never changes them.
 - **Game modes**: Ranked Solo/Duo, Ranked Flex, Normals (Draft, Blind,
   Quickplay; these use ranked data, which has more games) and ARAM. ARAM
   Mayhem uses normal ARAM data for now.
 - **Manual lookup**: look up any champion and matchup, even with League
   closed.
 - **Settings**: rank filter (Emerald+ by default), region (World by
-  default), minimum games for counters, which key Flash goes on, and what to
-  import.
+  default), minimum games for counters, and what to import.
 
 Stats come from [u.gg](https://u.gg); champion, item and rune names and
 icons come from Riot's official Data Dragon.
+
+## Will this get me banned? Is it safe?
+
+The app only talks to the League **client's** official local API (the same
+one Blitz, Porofessor, U.GG and Mobalytics use) and never touches the game:
+no memory reading, no injection, no drivers, no overlay, no keyboard or mouse
+automation. It never accepts queues, picks, bans, locks in, dodges or changes
+your summoner spells, and it never shows other players' names. Details, every
+League client call it makes, Riot's rules and the one gray area (auto-import):
+[docs/COMPLIANCE.md](docs/COMPLIANCE.md).
+
+Security, antivirus and the SmartScreen warning: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Install on Windows
 
@@ -74,10 +86,12 @@ downloaded". Choose **Keep**.
 
 ### Updating and uninstalling
 
-- **Update**: install the new version over the old one. Your settings are
-  kept.
-- **Uninstall**: Windows **Settings → Apps → Installed apps → Champ Select
-  Helper → Uninstall**.
+- **Update**: download the new `.exe` and use it instead of the old one
+  (delete the old file). Your settings are kept.
+- **Uninstall**: delete the `.exe`. To remove its data too, delete the
+  folders `%APPDATA%\com.bsieben9.champselecthelper` (settings) and
+  `%LOCALAPPDATA%\com.bsieben9.champselecthelper` (downloaded stats). The
+  app writes nothing else: no registry entries, no autostart, no services.
 
 ## Using it
 
@@ -85,8 +99,9 @@ downloaded". Choose **Keep**.
 2. Queue up. When champ select starts, the app switches to the live view by
    itself.
 3. Hover or lock your champion. The build for your matchup appears. With
-   auto-import on, the runes, spells and item set are sent to the client
-   when you **lock in**. You can always use the **Import** button instead.
+   auto-import on, the rune page and item set are sent to the client
+   once, when you **lock in**. You can always use the **Import** button
+   instead (or turn auto-import off).
 4. Rune pages and item sets made by the app start with **`CSH: `**. The app
    only ever replaces its own pages, never yours.
 
@@ -95,9 +110,10 @@ downloaded". Choose **Keep**.
 **"League not detected"**
 - Make sure the League client is open and you're logged in (not just the
   Riot Client).
-- If League runs **as administrator**, Windows won't let a normal app see
-  it. Either run Champ Select Helper as administrator too (right-click →
-  **Run as administrator**), or stop League from running as administrator.
+- The app finds League by reading the small `lockfile` League writes in its
+  install folder (it looks up the folder in Riot's install records, and
+  falls back to `C:\Riot Games\League of Legends`). It doesn't need, and
+  shouldn't be given, administrator rights.
 - If it still isn't found, close the helper and start it again once League
   has fully started.
 
@@ -123,8 +139,7 @@ downloaded". Choose **Keep**.
 **Windows won't start the app**
 - See ["Windows protected your PC"](#windows-protected-your-pc) above.
 - The app needs **Microsoft Edge WebView2**, which Windows 10/11 already
-  include. If it's missing, the installer downloads it. For the portable
-  `.exe`, get it from
+  include. If it's missing, get it from
   [Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/).
 
 ## Develop on your Windows PC with Claude Code
@@ -219,10 +234,11 @@ the **GitHub website**. GitHub is the meeting point, so:
 
 ## How it works (short version)
 
-The app reads the League client's local connection details, asks the
-client about champ select about once a second, fetches stats from u.gg
-(cached on disk per patch) and pushes runes, spells and item sets back
-through the client's local API. Details, data formats and decisions are in
+The app reads the League client's local connection details from League's
+`lockfile`, asks the client about champ select about once a second (every
+5 seconds on the home screen and in game), fetches stats from u.gg (cached
+on disk per patch) and pushes a rune page and an item set back through the
+client's local API. Details, data formats and decisions are in
 [DESIGN.md](DESIGN.md).
 
 ## Disclaimers

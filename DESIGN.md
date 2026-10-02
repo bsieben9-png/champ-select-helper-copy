@@ -43,10 +43,15 @@ row = `["champId", [[oppId, wins, games] x10], wins, games, ...]`.
  └─────────────────────────────────────────────┘
 ```
 
-1. **Find the client.** Locate the running `LeagueClientUx.exe` and read the
-   `lockfile` in the League install folder (`LeagueClient:pid:port:password:https`).
-   Fall back to `C:\Riot Games\League of Legends\lockfile`.
-2. **Watch champ select.** Poll `GET /lol-champ-select/v1/session` (~1 s) and
+1. **Find the client.** Read the `lockfile` in the League install folder
+   (`LeagueClient:pid:port:password:https`); the folder comes from Riot's
+   `C:\ProgramData\Riot Games\Metadata\league_of_legends.live\league_of_legends.live.product_settings.yaml`
+   (`product_install_full_path`), falling back to `C:\Riot Games\League of Legends`.
+   **Never** list, open or read other processes (no command lines, no memory):
+   see [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
+2. **Watch champ select.** Poll `GET /lol-gameflow/v1/gameflow-phase` every 1 s in
+   and near champ select (lobby, queue, ready check), every 5 s elsewhere (home
+   screen, in game). In champ select also `GET /lol-champ-select/v1/session` and
    `GET /lol-gameflow/v1/session` (queue id). Build a `ChampSelectState`, emit it
    to the UI as the `champ-select` event when it changes.
 3. **Work out the lane opponent.** Your role comes from `assignedPosition`.
@@ -193,8 +198,12 @@ Cloudflare; `stats2.u.gg` and `static.bigbrain.gg` are not) and grep `window.__S
 
 Auth: HTTP Basic `riot:<password>`. The client uses a self-signed Riot
 certificate that rustls can't verify (old v1 root, IP not in SAN), so the LCU
-HTTP client accepts invalid certs. It only ever talks to 127.0.0.1, never via a proxy.
-Spells are never written (recommendation only).
+HTTP client accepts invalid certs. It only ever talks to 127.0.0.1, never via a proxy,
+never follows redirects, and the password is never logged or sent to the UI.
+Spells are never written (recommendation only). Any new LCU call must be added to the
+endpoint table in [docs/COMPLIANCE.md](docs/COMPLIANCE.md) (and the Riot registration
+text there); never call champ-select actions, matchmaking/ready-check, lobby or
+login endpoints.
 Rune pages and item sets the app creates are named with the prefix
 **`CSH: `** so it only ever replaces its own.
 

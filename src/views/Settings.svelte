@@ -159,8 +159,14 @@
 
     <p class="about faint">
       Stats: u.gg (unofficial){app.staticData?.ugg_patch ? ` · Patch ${patchLabel(app.staticData.ugg_patch)}` : ""} · Names &amp;
-      icons: Riot Data Dragon{app.staticData ? ` ${app.staticData.version}` : ""}. Champ Select Helper isn't endorsed by
-      Riot Games.
+      icons: Riot Data Dragon{app.staticData ? ` ${app.staticData.version}` : ""}. Talks only to the League client's
+      local API; never to the game.
+    </p>
+    <!-- Riot's required legal boilerplate (developer.riotgames.com/policies/general). -->
+    <p class="about faint">
+      Champ Select Helper isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone
+      officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are
+      trademarks or registered trademarks of Riot Games, Inc.
     </p>
   {/if}
 </div>

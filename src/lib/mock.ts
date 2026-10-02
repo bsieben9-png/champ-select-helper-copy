@@ -148,7 +148,6 @@ async function loadStatic(): Promise<StaticData> {
     name: it.name,
     icon: `${base}/img/item/${it.image.full}`,
     gold: it.gold?.total ?? 0,
-    description: stripHtml(it.description ?? ""),
   }));
 
   const rune_styles: RuneStyle[] = runes.map((s: any) => ({

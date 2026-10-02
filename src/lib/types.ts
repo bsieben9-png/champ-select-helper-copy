@@ -137,7 +137,6 @@ export interface ItemInfo {
   name: string;
   icon: string;
   gold: number;
-  description: string;
 }
 
 export interface RuneInfo {

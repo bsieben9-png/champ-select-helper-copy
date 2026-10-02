@@ -44,16 +44,26 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return (await backend()).invoke<T>(cmd, args);
 }
 
-// Small in-memory cache for stats lookups. Results depend on settings
-// (rank/region/min games/pool), so the cache is dropped whenever they change.
+// Small in-memory cache for stats lookups: the most recently used
+// MAX_CACHED answers (a long session must not grow the webview's memory
+// without bound). Results depend on settings (rank/region/min games/pool),
+// so the cache is dropped whenever they change.
+const MAX_CACHED = 60;
 const cache = new Map<string, Promise<unknown>>();
 
 function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
-  if (hit) return hit as Promise<T>;
+  if (hit) {
+    // Map keeps insertion order: move to the end = most recently used.
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit as Promise<T>;
+  }
   const p = load();
   cache.set(key, p);
-  p.catch(() => cache.delete(key)); // never cache failures
+  if (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value as string);
+  // Never cache failures (but don't drop a newer entry for the same key).
+  p.catch(() => cache.get(key) === p && cache.delete(key));
   return p;
 }
 

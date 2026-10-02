@@ -6,7 +6,9 @@
 //!   the real `import_build` command, driven against the fake client with a
 //!   mock Tauri app and offline u.gg / Data Dragon fixtures.
 //! - `live_sweep`: `#[ignore]`d sweep over every champion against live u.gg.
+//! - `efficiency`: `#[ignore]`d memory / payload / CPU measurements.
 
+mod efficiency;
 mod fake_lcu;
 mod live_sweep;
 mod scenarios;

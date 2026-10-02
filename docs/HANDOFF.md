@@ -52,7 +52,8 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
   after a patch, no re-import after an app restart) and `wip/modes` (end-to-end correctness for
   Ranked / Normals incl. Quickplay's lobby champion picks / ARAM Mayhem bench+rerolls; per-mode
   manual checklist in docs/TESTING.md) and `wip/efficiency` (measure + cut memory/CPU/startup/IPC/
-  network/exe size; owner wants it as lightweight as possible). If not merged on main, finish them
+  network/exe size; owner wants it as lightweight as possible) and `wip/security` (security review +
+  anything that looks suspicious to antivirus/SmartScreen; `docs/SECURITY.md`). If not merged on main, finish them
   from those branches.
 
 ## Next steps after that

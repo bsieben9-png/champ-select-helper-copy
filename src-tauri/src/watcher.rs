@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::lcu::LcuClient;
 use crate::model::*;
@@ -20,7 +20,7 @@ const IMPORT_RETRY: Duration = Duration::from_secs(15);
 /// Retry loading u.gg primary roles after this long when it failed.
 const ROLES_RETRY: Duration = Duration::from_secs(30);
 
-pub fn spawn(app: AppHandle) {
+pub fn spawn<R: Runtime>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let mut watcher = Watcher::default();
         loop {
@@ -52,7 +52,7 @@ struct LastImport {
 
 impl Watcher {
     /// One iteration; returns how long to sleep before the next one.
-    async fn tick(&mut self, app: &AppHandle) -> Duration {
+    async fn tick<R: Runtime>(&mut self, app: &AppHandle<R>) -> Duration {
         let state = app.state::<AppState>();
 
         // Clone the client so no lock is held across HTTP calls.
@@ -109,7 +109,12 @@ impl Watcher {
         POLL_INTERVAL
     }
 
-    async fn disconnected(&mut self, app: &AppHandle, state: &AppState) {
+    /// The client is gone or stopped answering. Clears the UI but keeps
+    /// `last_import`: a hiccup (timeout, stale port) in the middle of champ
+    /// select must not cause a second auto-import when we reconnect into the
+    /// same champ select. It's forgotten once the client is seen outside
+    /// champ select (`left_champ_select`).
+    async fn disconnected<R: Runtime>(&mut self, app: &AppHandle<R>, state: &AppState) {
         set_status(
             app,
             state,
@@ -120,12 +125,12 @@ impl Watcher {
             },
         )
         .await;
-        self.left_champ_select(app, state).await;
+        set_champ_select(app, state, ChampSelectState::default()).await;
     }
 
     /// Clear champ select (emits once) and forget what was imported, so the
     /// next champ select (e.g. after a dodge) imports again.
-    async fn left_champ_select(&mut self, app: &AppHandle, state: &AppState) {
+    async fn left_champ_select<R: Runtime>(&mut self, app: &AppHandle<R>, state: &AppState) {
         set_champ_select(app, state, ChampSelectState::default()).await;
         self.last_import = None;
     }
@@ -154,15 +159,14 @@ impl Watcher {
     /// changes (enemy locks, trades, the user editing pages) never trigger a
     /// re-import. ARAM has no lock-in: there, a champion change from a
     /// reroll / bench swap counts as a new pick and is imported once.
-    async fn auto_import(
+    async fn auto_import<R: Runtime>(
         &mut self,
-        app: &AppHandle,
+        app: &AppHandle<R>,
         state: &AppState,
         client: &LcuClient,
         cs: &ChampSelectState,
     ) {
-        let settings = state.settings.read().await.clone();
-        if !settings.auto_import || !cs.my_champion_locked {
+        if !cs.my_champion_locked {
             return;
         }
         let (Some(champion_id), Some(queue)) = (cs.my_champion_id, cs.queue) else {
@@ -174,6 +178,18 @@ impl Watcher {
             queue,
             Instant::now(),
         ) {
+            return;
+        }
+        let settings = state.settings.read().await.clone();
+        if !settings.auto_import {
+            // Off at the moment of lock-in: this pick is done. Switching
+            // auto-import on later in this champ select must not import (the
+            // user may already have set up their runes by hand).
+            self.last_import = Some(LastImport {
+                champion_id,
+                at: Instant::now(),
+                done: true,
+            });
             return;
         }
         // Remember before the (slow) work so a failure isn't retried every second.
@@ -245,7 +261,7 @@ fn import_due(last: Option<&LastImport>, champion_id: u32, queue: Queue, now: In
 }
 
 /// Store + emit `lcu-status` when it changed.
-async fn set_status(app: &AppHandle, state: &AppState, status: LcuStatus) {
+async fn set_status<R: Runtime>(app: &AppHandle<R>, state: &AppState, status: LcuStatus) {
     {
         let mut current = state.lcu_status.write().await;
         if *current == status {
@@ -257,7 +273,7 @@ async fn set_status(app: &AppHandle, state: &AppState, status: LcuStatus) {
 }
 
 /// Store + emit `champ-select` when it changed.
-async fn set_champ_select(app: &AppHandle, state: &AppState, cs: ChampSelectState) {
+async fn set_champ_select<R: Runtime>(app: &AppHandle<R>, state: &AppState, cs: ChampSelectState) {
     {
         let mut current = state.champ_select.write().await;
         if *current == cs {
@@ -310,5 +326,115 @@ mod tests {
         assert!(!import_due(Some(&recent), 83, Queue::RankedSolo, now));
         let old = last(83, false, IMPORT_RETRY + Duration::from_secs(1));
         assert!(import_due(Some(&old), 83, Queue::RankedSolo, now));
+    }
+
+    // --- the loop itself, against a mock League client ----------------------
+
+    use crate::lcu::tests::{fixture, mock_client, unreachable_client};
+    use tauri::test::MockRuntime;
+    use tokio::sync::RwLock;
+
+    /// Offline app state: u.gg from fixtures, static data preloaded (so Data
+    /// Dragon is never contacted), connected to `client`.
+    fn manage_state(
+        app: &tauri::App<MockRuntime>,
+        name: &str,
+        client: LcuClient,
+        settings: Settings,
+    ) {
+        let dir = crate::http_cache::test_util::temp_dir(name);
+        app.manage(AppState {
+            ugg: crate::ugg::tests::seeded_ugg(name).0,
+            ddragon: crate::ddragon::DDragon::new(dir.join("ddragon")),
+            settings: RwLock::new(settings),
+            settings_path: dir.join("settings.json"),
+            lcu: RwLock::new(Some(client)),
+            lcu_status: RwLock::new(LcuStatus::default()),
+            champ_select: RwLock::new(ChampSelectState::default()),
+            static_data: RwLock::new(Some(StaticData {
+                version: "16.19.1".into(),
+                ugg_patch: "16_19".into(),
+                champions: Vec::new(),
+                items: Vec::new(),
+                rune_styles: Vec::new(),
+                shards: Vec::new(),
+                spells: Vec::new(),
+            })),
+        });
+    }
+
+    const RUNE_POST: (&str, &str) = ("POST", "/lol-perks/v1/pages");
+
+    #[test]
+    fn reconnecting_mid_champ_select_does_not_import_again() {
+        let app = tauri::test::mock_app();
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            // Locked in as Yorick (ranked).
+            let (mock, client) =
+                mock_client(|m| m.session = Some(fixture("champ_select_ranked.json"))).await;
+            manage_state(
+                &app,
+                "watcher-reconnect",
+                client.clone(),
+                Settings::default(),
+            );
+            let (handle, state) = (app.handle(), app.state::<AppState>());
+            let posts = || mock.lock().unwrap().requests_to(RUNE_POST.0, RUNE_POST.1);
+            let mut w = Watcher::default();
+
+            w.tick(handle).await;
+            assert_eq!(posts(), 1, "auto-import at lock-in");
+
+            // The client stops answering for a moment (timeout / restart)…
+            *state.lcu.write().await = Some(unreachable_client().await);
+            w.tick(handle).await;
+            assert!(state.lcu.read().await.is_none());
+            assert!(!state.lcu_status.read().await.connected);
+            // …and is back, still in the same champ select: the user may have
+            // edited the imported page by now, so nothing is imported again.
+            *state.lcu.write().await = Some(client.clone());
+            w.tick(handle).await;
+            w.tick(handle).await;
+            assert!(state.champ_select.read().await.in_champ_select);
+            assert_eq!(posts(), 1, "re-imported after a reconnect");
+
+            // The next champ select imports again.
+            mock.lock().unwrap().session = None;
+            w.tick(handle).await;
+            mock.lock().unwrap().session = Some(fixture("champ_select_ranked.json"));
+            w.tick(handle).await;
+            assert_eq!(posts(), 2);
+        });
+    }
+
+    #[test]
+    fn switching_auto_import_on_after_lock_in_does_not_import() {
+        let app = tauri::test::mock_app();
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let (mock, client) =
+                mock_client(|m| m.session = Some(fixture("champ_select_ranked.json"))).await;
+            let off = Settings {
+                auto_import: false,
+                ..Settings::default()
+            };
+            manage_state(&app, "watcher-toggle", client, off);
+            let (handle, state) = (app.handle(), app.state::<AppState>());
+            let posts = || mock.lock().unwrap().requests_to(RUNE_POST.0, RUNE_POST.1);
+            let mut w = Watcher::default();
+
+            w.tick(handle).await;
+            assert_eq!(posts(), 0, "auto-import is off");
+            // Turned on after locking in: it was off at lock-in, so no import.
+            state.settings.write().await.auto_import = true;
+            w.tick(handle).await;
+            assert_eq!(posts(), 0, "imported after lock-in");
+
+            // The next champ select imports at lock-in.
+            mock.lock().unwrap().session = None;
+            w.tick(handle).await;
+            mock.lock().unwrap().session = Some(fixture("champ_select_ranked.json"));
+            w.tick(handle).await;
+            assert_eq!(posts(), 1);
+        });
     }
 }

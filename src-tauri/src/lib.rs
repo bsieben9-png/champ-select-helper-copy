@@ -31,10 +31,22 @@ impl AppState {
         if let Some(sd) = self.static_data.read().await.as_ref() {
             return Ok(sd.clone());
         }
-        let patch = self.ugg.latest_patch().await?;
-        let roles = self.ugg.primary_roles().await.unwrap_or_default();
-        let sd = self.ddragon.static_data(&patch, &roles).await?;
-        *self.static_data.write().await = Some(sd.clone());
+        // Names and icons come from Data Dragon: u.gg being unreachable must
+        // not leave the whole UI (champ select view, lookup) without them.
+        // Without the u.gg parts the result isn't kept, so they're retried.
+        let patch = self.ugg.latest_patch().await;
+        let roles = match &patch {
+            Ok(_) => self.ugg.primary_roles().await.ok(),
+            Err(_) => None,
+        };
+        let complete = patch.is_ok() && roles.is_some();
+        let sd = self
+            .ddragon
+            .static_data(&patch.unwrap_or_default(), &roles.unwrap_or_default())
+            .await?;
+        if complete {
+            *self.static_data.write().await = Some(sd.clone());
+        }
         Ok(sd)
     }
 }
@@ -188,4 +200,46 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Champ Select Helper");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app_state(ugg: ugg::Ugg, ddragon: ddragon::DDragon) -> AppState {
+        AppState {
+            ugg,
+            ddragon,
+            settings: RwLock::new(Settings::default()),
+            settings_path: PathBuf::new(),
+            lcu: RwLock::new(None),
+            lcu_status: RwLock::new(LcuStatus::default()),
+            champ_select: RwLock::new(ChampSelectState::default()),
+            static_data: RwLock::new(None),
+        }
+    }
+
+    #[tokio::test]
+    async fn static_data_does_not_need_ugg() {
+        // u.gg unreachable and nothing cached: every u.gg file is "missing".
+        let (ugg, ugg_dir) = ugg::tests::seeded_ugg("static-no-ugg");
+        std::fs::remove_dir_all(&ugg_dir).unwrap();
+        let (dd, _) = ddragon::tests::seeded("static-no-ugg-dd");
+        let state = app_state(ugg, dd);
+        let sd = state.static_data().await.expect("Data Dragon data");
+        assert!(sd.champions.iter().any(|c| c.name == "Yorick"));
+        assert_eq!(sd.ugg_patch, "");
+        // Not kept: the u.gg parts are retried next time.
+        assert!(state.static_data.read().await.is_none());
+
+        // With u.gg: complete and kept.
+        let (ugg, _) = ugg::tests::seeded_ugg("static-with-ugg");
+        let (dd, _) = ddragon::tests::seeded("static-with-ugg-dd");
+        let state = app_state(ugg, dd);
+        let sd = state.static_data().await.unwrap();
+        assert_eq!(sd.ugg_patch, "16_19");
+        let yorick = sd.champions.iter().find(|c| c.id == 83).unwrap();
+        assert_eq!(yorick.roles.first(), Some(&Role::Top));
+        assert!(state.static_data.read().await.is_some());
+    }
 }

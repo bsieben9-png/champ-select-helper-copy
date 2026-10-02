@@ -1094,7 +1094,7 @@ impl Ugg {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::http_cache::test_util::{fixture, temp_dir};
 
@@ -1111,7 +1111,7 @@ mod tests {
 
     /// An offline `Ugg` whose disk cache is pre-filled with the fixtures
     /// (patch 16_19). Anything not seeded behaves like a 403.
-    fn seeded_ugg(name: &str) -> (Ugg, PathBuf) {
+    pub(crate) fn seeded_ugg(name: &str) -> (Ugg, PathBuf) {
         let dir = temp_dir(name);
         let ugg = Ugg {
             http: HttpCache::new_offline(dir.clone(), MEMORY_ENTRIES),

@@ -235,8 +235,12 @@ class AppState {
   }
 
   #onAutoImported(e: AutoImportEvent) {
+    // Read role/queue now, not when the "rune pages full" question is
+    // answered: by then champ select may be over (cs reset → wrong queue/role).
+    const role = this.cs.my_role;
+    const queue = this.cs.queue ?? "ranked_solo";
     this.reportImport(e.result, e.champion_id, e.opponent_id, true, () =>
-      api.getBuild(e.champion_id, this.cs.my_role, e.opponent_id, this.cs.queue ?? "ranked_solo"),
+      api.getBuild(e.champion_id, role, e.opponent_id, queue),
     );
   }
 

@@ -53,9 +53,10 @@ row = `["champId", [[oppId, wins, games] x10], wins, games, ...]`.
    a best-fit assignment across the 5 enemies. The user can override by
    clicking an enemy.
 4. **Fetch data from u.gg**, cache it on disk per patch.
-5. **Auto-import** (when on): once your champion is **locked**, push the rune
-   page, summoner spells and item set. Re-import if the lane opponent changes
-   (e.g. they lock after you). Never re-import the same thing twice.
+5. **Auto-import** (when on at lock-in): once your champion is **locked**, push
+   the rune page and item set — exactly once per champ select (see the owner
+   table: no re-import when the lane opponent appears later, the UI only
+   suggests a manual import; summoner spells are never written).
 
 ## u.gg data (unofficial — may change without notice)
 

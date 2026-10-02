@@ -51,7 +51,9 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
 - **In progress (cloud):** `wip/watcher` (champ select never stalls on a slow u.gg, roles reload
   after a patch, no re-import after an app restart) and `wip/modes` (end-to-end correctness for
   Ranked / Normals incl. Quickplay's lobby champion picks / ARAM Mayhem bench+rerolls; per-mode
-  manual checklist in docs/TESTING.md). If not merged on main, finish them from those branches.
+  manual checklist in docs/TESTING.md) and `wip/efficiency` (measure + cut memory/CPU/startup/IPC/
+  network/exe size; owner wants it as lightweight as possible). If not merged on main, finish them
+  from those branches.
 
 ## Next steps after that
 1. Merge the review/test results (branches `wip/review`, `wip/tests` if not on main yet). Optional: fill augment descriptions/pick rates from OP.GG's Mayhem page (sample in `src-tauri/tests/fixtures/other_sources/opgg_mayhem_augments_83.json`).

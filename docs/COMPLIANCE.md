@@ -7,7 +7,9 @@ Riot changes its third-party rules (links at the bottom).
 ## Verdict
 
 **Low risk, same category as Blitz, Porofessor, U.GG and Mobalytics' champ-select
-features, with one gray area you should know about (auto-import, see below).**
+features, and by default it does less than they do: nothing is written into the client
+unless you click Import.** The remaining formal gap is that the app isn't registered with
+Riot yet ([text ready below](#registering-with-riot)).
 
 - The app only talks to the League client's **official local API** (the "LCU", the
   same API the client's own screens use) and downloads **public** data (u.gg stats,
@@ -21,14 +23,15 @@ features, with one gray area you should know about (auto-import, see below).**
 - Its only writes into the client are a rune page and an item set, both named
   `CSH: …`, which is exactly what the mainstream apps do.
 
-**Gray area (owner's decision, not changed here): auto-import at lock-in.** Riot lists
-"Taking actions on your behalf (botting or scripting)" as prohibited. Writing a rune
-page and item set into the client *in champ select* is a convenience action that every
-mainstream app does (Blitz, Porofessor, U.GG, Mobalytics, OP.GG) and that Riot has not
-acted against in years, but those apps are **registered/approved** with Riot and this
-app is not. With **Auto-import off**, the app only writes when *you* press **Import**,
-which removes the "on your behalf" question entirely. The setting is in
-Settings → Import into the client → Auto-import (default: on).
+**Auto-import: off by default (owner decision, main commit f2a195d).** Riot lists
+"Taking actions on your behalf (botting or scripting)" as prohibited. By default the app
+writes the rune page and item set only when **you click Import** (one click per game), so
+every write is your own action. Auto-import is an opt-in toggle (Settings → Import into
+the client → Auto-import) that makes exactly **one** attempt when you lock in and never
+retries. Turning it on is the one gray area: writing a rune page in champ select
+automatically is what every mainstream app does (Blitz, Porofessor, U.GG, Mobalytics,
+OP.GG) and Riot hasn't acted against it in years, but those apps are registered/approved
+with Riot and this one isn't (yet).
 
 Nothing here is a guarantee: Riot decides. But the app stays well inside the lines Riot
 has drawn publicly, and does strictly less than the big approved apps.
@@ -48,7 +51,7 @@ has drawn publicly, and does strictly less than the big approved apps.
 | Riot prohibits | What Champ Select Helper does |
 |---|---|
 | "Exposing information that's intentionally obfuscated" | Never reads or shows other players' names, Riot IDs, PUUIDs, summoner ids, ranks or match history. Ranked champ select hides teammates' names; the app doesn't try to recover them. It shows only what the champ select screen shows you: your own pick and role, allies' picks/hovers, **locked** enemy champions, bans. Enemy *roles* are a guess from champion statistics (which lane each champion is usually played in), not from any hidden data; the UI marks them as guesses. Your own name (connection pill) comes from `/lol-summoner/v1/current-summoner` (you). |
-| "Taking actions on your behalf (botting or scripting)" | No queue accept, pick, ban, lock-in, dodge, chat, or spell change, ever. It writes only a rune page + an item set: **one attempt** when you lock in (Auto-import, can be turned off; never retried, a failure only tells you to press Import, commit 6e411c7) or when you press Import. See the gray area above. |
+| "Taking actions on your behalf (botting or scripting)" | No queue accept, pick, ban, lock-in, dodge, chat, or spell change, ever. It writes only a rune page + an item set, by default **only when you press Import**. Opt-in Auto-import (off by default, f2a195d) makes one attempt when you lock in, never retried (6e411c7). See the auto-import note above. |
 | "Drawing conclusions for you during gameplay (ie we want to see you play the game first, then analyze and reflect later!)" | Nothing runs during the game except a cheap "which screen is the client on?" check to the client (not to the game), every 5 s. The app reads no live game data at all (no Live Client Data API, port 2999, no memory, no screen) and shows nothing new during the game. ARAM / ARAM Mayhem support (and with it the augment list) is being removed by owner decision (code kept on branch `saved/aram-mayhem`); supported modes are Ranked and Normals. |
 | "Altering your field of intelligence (zoomhacks or global ult alerts)" | Nothing of the kind: no overlay, no timers, no cooldown tracking, no in-game alerts. |
 | Skin hacks / unauthorized services | None. |
@@ -197,8 +200,8 @@ game data is read and nothing new is shown during the game.
 | | This app | Blitz / Porofessor / U.GG / Mobalytics desktop apps |
 |---|---|---|
 | Data from the client | LCU only | LCU + Live Client Data API, and in-game overlays |
-| Rune page import at lock-in | Yes (toggle) | Yes |
-| Item sets | Yes (toggle) | Yes |
+| Rune page import | On your click; at lock-in only if you opt in | Yes, usually automatic at lock-in |
+| Item sets | Same as runes | Yes |
 | Summoner spells | Recommendation only | Many set them automatically |
 | Auto-accept / auto-pick / auto-ban | No | Some offer auto-accept |
 | In-game overlay | No | Yes (Blitz, Porofessor, Mobalytics) |
@@ -214,8 +217,8 @@ registration.
    must be registered in, and audited by Riot Games through the Developer Portal"). Riot's
    own words: approved apps built on the official API "should rarely have an issue". See
    [Registering with Riot](#registering-with-riot).
-2. **Auto-import is an automatic action** (see the gray area). Turning it off makes every
-   write a direct result of your click.
+2. **Auto-import, if you turn it on, is an automatic action** (see the auto-import note).
+   Off (the default), every write is a direct result of your click.
 3. **The LCU is unsupported.** Riot can change it any time; the app would then stop
    working, not get you banned.
 4. **u.gg's data is unofficial**, used without an agreement with u.gg. That's a
@@ -236,7 +239,7 @@ the one formal gap. Steps:
 3. Paste the text below into the form (adjust anything that changed), then complete the
    verification step Riot asks for.
 4. If Riot replies with concerns in the portal, the usual fix is a setting (for example
-   turning auto-import off by default). Riot's portal is also where any later change has to
+   removing the opt-in auto-import). Riot's portal is also where any later change has to
    be "audited through the product's page".
 
 **Ready-to-paste text** (plain text, keep the endpoint list in sync with
@@ -268,10 +271,10 @@ How it works:
   augment or Arena data at all.
 - Never accepts queues, picks, bans, locks in, dodges, or changes summoner
   spells. The only writes are one rune page and one item set, both named
-  "CSH: ...": a single attempt when I lock in (can be turned off, never
-  retried) or when I press Import. It only replaces its own "CSH:" pages/sets,
-  and only replaces one of my own rune pages after I confirm it in a dialog
-  (when all rune page slots are full).
+  "CSH: ...", written when I press Import. An opt-in setting (off by default)
+  instead makes a single attempt when I lock in, never retried. It only
+  replaces its own "CSH:" pages/sets, and only replaces one of my own rune
+  pages after I confirm it in a dialog (when all rune page slots are full).
 - Polls the local client once per second in and right before champion select,
   every 5 seconds otherwise (one gameflow-phase request); nothing during the
   game beyond that.
@@ -308,8 +311,10 @@ must keep changing only the slot's `perks` field (never the champion, skin or sp
 
 ## Open decisions for the owner
 
-- **Auto-import default** (on now). Off = the app never acts without a click from you.
-- **Register the app** on the Developer Portal (text above). Strongly recommended.
+- ~~Auto-import default~~: decided, **off** by default (f2a195d). Leave it off to keep
+  every write a click of yours.
+- **Register the app** on the Developer Portal (text above). Strongly recommended; it's the
+  one remaining formal gap.
 
 ## Changes made in this review
 
@@ -326,10 +331,10 @@ must keep changing only the slot's `perks` field (never the champion, skin or sp
 - Settings page shows Riot's legal boilerplate in full (it was shortened).
 - README: no longer claims the import sets summoner spells; no longer tells you to run the
   app as administrator; new "Will this get me banned?" section.
-- Not changed (owner decision): the auto-import default.
 - Done elsewhere (main, same day, owner decisions): augment win rates never shown
   (b59c3a2), then ARAM / ARAM Mayhem removed entirely (saved on `saved/aram-mayhem`);
-  auto-import is exactly one attempt at lock-in, never retried (6e411c7).
+  auto-import is exactly one attempt at lock-in, never retried (6e411c7), and **off by
+  default** (f2a195d).
 
 ## Sources (checked 2026-10-02)
 

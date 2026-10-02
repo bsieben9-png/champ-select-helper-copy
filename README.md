@@ -27,10 +27,10 @@ champion before you've picked, it suggests easy **counter-picks**.
   enemy in your role. Matchups with too few games are ignored.
 - **My champion pool**: add the champions you play. Counters from your pool
   are shown first and highlighted (or, if you prefer, only your pool).
-- **Import into League**: one click (or automatically when you lock in)
-  creates the rune page and adds an in-game **item set**. Turn auto-import
-  on or off in Settings. Summoner spells are only a recommendation: the app
-  never changes them.
+- **Import into League**: one click on **Import** creates the rune page and
+  adds an in-game **item set**. (Optional: turn on auto-import in Settings
+  to do it once when you lock in; it's off by default.) Summoner spells are
+  only a recommendation: the app never changes them.
 - **Game modes**: Ranked Solo/Duo, Ranked Flex, Normals (Draft, Blind,
   Quickplay; these use ranked data, which has more games) and ARAM. ARAM
   Mayhem uses normal ARAM data for now.
@@ -48,9 +48,9 @@ The app only talks to the League **client's** official local API (the same
 one Blitz, Porofessor, U.GG and Mobalytics use) and never touches the game:
 no memory reading, no injection, no drivers, no overlay, no keyboard or mouse
 automation. It never accepts queues, picks, bans, locks in, dodges or changes
-your summoner spells, and it never shows other players' names. Details, every
-League client call it makes, Riot's rules and the one gray area (auto-import):
-[docs/COMPLIANCE.md](docs/COMPLIANCE.md).
+your summoner spells, and it never shows other players' names. By default it
+writes nothing into the client until you click Import. Details, every League
+client call it makes and Riot's rules: [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
 
 Security, antivirus and the SmartScreen warning: [docs/SECURITY.md](docs/SECURITY.md).
 
@@ -98,10 +98,10 @@ downloaded". Choose **Keep**.
 1. Start Champ Select Helper. You can start it before or after League.
 2. Queue up. When champ select starts, the app switches to the live view by
    itself.
-3. Hover or lock your champion. The build for your matchup appears. With
-   auto-import on, the rune page and item set are sent to the client
-   once, when you **lock in**. You can always use the **Import** button
-   instead (or turn auto-import off).
+3. Hover or lock your champion. The build for your matchup appears. Click
+   **Import** to send the rune page and item set to the client. (If you
+   turned on auto-import in Settings, that happens once, by itself, when
+   you **lock in**.)
 4. Rune pages and item sets made by the app start with **`CSH: `**. The app
    only ever replaces its own pages, never yours.
 

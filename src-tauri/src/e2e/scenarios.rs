@@ -1523,7 +1523,7 @@ async fn ui_invoke_calls_reach_the_commands() {
 #[tokio::test]
 async fn polls_slowly_away_from_champ_select() {
     let fast = Duration::from_secs(1);
-    let mut h = Harness::new("e2e-poll-rate", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-poll-rate", Settings::auto_on(), |_| {}).await;
 
     h.client_shows("None", None);
     h.ticks(3).await;

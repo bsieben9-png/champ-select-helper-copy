@@ -35,10 +35,14 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
 
 - **Code review: MERGED.** 7 bugs fixed (re-import after a client hiccup, toggling auto-import on
   after lock-in, item-set wipe on an odd GET, perk order for the client, static data needing u.gg,
-  wrong queue in the overwrite dialog, Import enabled while loading). Leftovers worth doing:
-  the watcher's u.gg calls can stall champ-select updates for 8-15 s when u.gg hangs (move build
-  fetching off the poll loop); champion
-  roles never reload after a patch change; "already imported" isn't persisted across app restarts.
+  wrong queue in the overwrite dialog, Import enabled while loading). Its leftovers are DONE
+  (`wip/watcher`): u.gg work runs off the poll loop (a hanging u.gg no longer stalls champ select
+  updates; a late build never writes into a finished/other champ select), roles reload after a
+  u.gg patch change (hourly check), "already imported" survives an app restart (`last_import.json`),
+  a League client restart mid champ select doesn't re-import, one error answer no longer clears
+  the champ select in the UI. Needs a real client to confirm: that `gameId` in
+  `/lol-champ-select/v1/session` is non-zero and differs after a dodge (falls back to the session
+  `id`; without either, restart protection is off and the 3-poll leave rule applies).
 
 - **End-to-end tests: MERGED** (`src-tauri/src/e2e/`: fake League client + scenarios; live sweep of all
   173 champions = 0 problems; real-app smoke test `scripts/smoke/run.sh` 13/13; see `docs/TESTING.md`).

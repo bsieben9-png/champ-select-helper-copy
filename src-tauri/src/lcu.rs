@@ -1343,6 +1343,24 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn session_identity_is_the_game_id_else_the_session_id() {
+        let mut session = fixture("champ_select_ranked.json");
+        assert_eq!(
+            session_identity(&session).as_deref(),
+            Some("game:7212345678")
+        );
+        session["gameId"] = json!(0);
+        assert_eq!(
+            session_identity(&session).as_deref(),
+            Some("session:a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
+        );
+        session["id"] = json!("");
+        assert_eq!(session_identity(&session), None);
+        assert_eq!(session_identity(&json!({})), None);
+        assert_eq!(session_identity(&json!("garbage")), None);
+    }
+
+    #[test]
     fn unknown_queue_and_garbage_input() {
         let cs = parse_champ_select(&fixture("champ_select_ranked.json"), None, &roles());
         assert_eq!(cs.queue, None);

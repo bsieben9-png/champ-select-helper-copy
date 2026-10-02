@@ -68,6 +68,11 @@ Last updated: 2026-10-02 1:30 AM MT (cloud session). Current release: v0.1.1 (po
   docs/SECURITY.md), `wip/watcher`, `wip/modes` (resumed after the usage cap). PAUSED: `wip/efficiency`.
   Work-saving: one or few agents at a time, commit every step, 2-minute snapshots to wip/*.
 
+- **OWNER DECISIONS (2026-10-02 ~1:55 AM MT):** (a) **Remove ALL ARAM / ARAM Mayhem support** from
+  the app (code preserved on branch `saved/aram-mayhem`, commit 6e411c7). Supported modes: Ranked +
+  Normals only. Being done by the modes agent (`wip/modes`). (b) Auto-import = exactly ONE attempt at
+  lock-in, never retried (done, 6e411c7). (c) Augment win rates are never displayed (Riot policy).
+
 ## Next steps after that
 1. Merge the review/test results (branches `wip/review`, `wip/tests` if not on main yet). Optional: fill augment descriptions/pick rates from OP.GG's Mayhem page (sample in `src-tauri/tests/fixtures/other_sources/opgg_mayhem_augments_83.json`).
 2. Test on the Windows PC with League running (see the list in the LCU agent notes below).

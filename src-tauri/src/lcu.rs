@@ -10,12 +10,18 @@
 //! reliably with rustls, so the LCU HTTP client — and only that client — is
 //! built with `danger_accept_invalid_certs(true)`. It only ever connects to
 //! `127.0.0.1` (never through a proxy), and the password it sends is already
-//! readable by any local process from the lockfile / process list, so
-//! verification would not add meaningful protection here. All other HTTP
+//! readable by any local process from the lockfile, so
+//! verification would not add meaningful protection here.
+//!
+//! ## Finding the client (Riot / Vanguard / antivirus friendly)
+//! The port + password come ONLY from League's `lockfile`, located via Riot's
+//! own install metadata. The app never lists, opens or reads other processes
+//! (no command lines, no memory), never touches the game process, and only
+//! talks to the client's official local API. All other HTTP
 //! (u.gg, Data Dragon) uses normal certificate checks.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -453,96 +459,50 @@ impl LcuClient {
 // Discovery
 // ---------------------------------------------------------------------------
 
+/// Find the running League client's port + password from its `lockfile`.
+///
+/// Riot/Vanguard- and antivirus-friendly by design: this NEVER inspects other
+/// processes: no process list, no process handles, no command lines, no
+/// memory reads. It only reads two small files that League writes for exactly
+/// this purpose: Riot's install metadata (where League is installed) and the
+/// `lockfile` (present only while the client runs). A stale lockfile left by
+/// a crash just fails to connect and is retried later.
 fn find_credentials() -> Option<Credentials> {
-    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-
-    let mut sys = System::new();
-    // Names only (always fetched): no CPU, memory, cmd, exe, threads.
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::All,
-        true,
-        ProcessRefreshKind::nothing().without_tasks(),
-    );
-    let find = |wanted: &str| {
-        sys.processes()
-            .iter()
-            .find(|(_, p)| is_process_named(&p.name().to_string_lossy(), wanted))
-            .map(|(pid, _)| *pid)
-    };
-    let ux = find("LeagueClientUx.exe");
-    let launcher = find("LeagueClient.exe");
-    if ux.is_none() && launcher.is_none() {
-        return None; // League isn't running; don't touch the disk.
-    }
-
-    let pids: Vec<_> = ux.into_iter().chain(launcher).collect();
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::Some(&pids),
-        false,
-        ProcessRefreshKind::nothing()
-            .without_tasks()
-            .with_cmd(UpdateKind::Always)
-            .with_exe(UpdateKind::Always),
-    );
-
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    for pid in &pids {
-        let Some(process) = sys.process(*pid) else {
-            continue;
-        };
-        let args: Vec<String> = process
-            .cmd()
-            .iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-        if Some(*pid) == ux {
-            if let Some(creds) = parse_command_line(&args) {
-                return Some(creds);
-            }
-        }
-        if let Some(dir) = process.exe().and_then(Path::parent) {
-            dirs.push(dir.to_path_buf());
-        }
-        if let Some(dir) = arg_value(&args, "--install-directory=") {
-            dirs.push(PathBuf::from(dir));
-        }
-    }
-    dirs.push(PathBuf::from(DEFAULT_INSTALL_DIR));
-
-    dirs.iter().find_map(|dir| {
+    install_dirs().iter().find_map(|dir| {
         let text = std::fs::read_to_string(dir.join("lockfile")).ok()?;
         parse_lockfile(&text)
     })
 }
 
-/// Case-insensitive process name match; ".exe" optional (macOS/Wine).
-fn is_process_named(name: &str, wanted: &str) -> bool {
-    let strip = |s: &str| {
-        let lower = s.to_ascii_lowercase();
-        lower
-            .strip_suffix(".exe")
-            .map(str::to_string)
-            .unwrap_or(lower)
-    };
-    strip(name) == strip(wanted)
+/// Riot Client's record of where League is installed (relative to ProgramData).
+const PRODUCT_SETTINGS: &str =
+    r"Riot Games\Metadata\league_of_legends.live\league_of_legends.live.product_settings.yaml";
+
+/// Candidate League install folders, best first.
+fn install_dirs() -> Vec<PathBuf> {
+    let program_data = std::env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+    let mut dirs: Vec<PathBuf> = std::fs::read_to_string(program_data.join(PRODUCT_SETTINGS))
+        .ok()
+        .and_then(|yaml| parse_product_install_path(&yaml))
+        .into_iter()
+        .collect();
+    let default = PathBuf::from(DEFAULT_INSTALL_DIR);
+    if !dirs.contains(&default) {
+        dirs.push(default);
+    }
+    dirs
 }
 
-/// Value of `--key=value` in a command line. Tolerates quoted args and a
-/// whole command line passed as a single string.
-fn arg_value(args: &[String], prefix: &str) -> Option<String> {
-    args.iter()
-        .flat_map(|a| a.split_whitespace())
-        .map(|a| a.trim_matches(|c| c == '"' || c == '\''))
-        .find_map(|a| a.strip_prefix(prefix))
-        .map(|v| v.trim_matches(|c| c == '"' || c == '\'').to_string())
-        .filter(|v| !v.is_empty())
-}
-
-/// `LeagueClientUx.exe --app-port=1234 --remoting-auth-token=abc ...`
-fn parse_command_line(args: &[String]) -> Option<Credentials> {
-    let port = arg_value(args, "--app-port=")?.parse().ok()?;
-    let token = arg_value(args, "--remoting-auth-token=")?;
-    Some(Credentials { port, token })
+/// `product_install_full_path: "C:/Riot Games/League of Legends"` from Riot's
+/// product_settings.yaml (a simple line scan; no YAML dependency needed).
+fn parse_product_install_path(yaml: &str) -> Option<PathBuf> {
+    yaml.lines().find_map(|line| {
+        let value = line.trim().strip_prefix("product_install_full_path:")?;
+        let value = value.trim().trim_matches(|c| c == '"' || c == '\'');
+        (!value.is_empty()).then(|| PathBuf::from(value))
+    })
 }
 
 /// `LeagueClient:pid:port:password:protocol`
@@ -1150,7 +1110,7 @@ pub(crate) mod tests {
     use Role::*;
 
     pub(crate) fn fixture(name: &str) -> Value {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/lcu")
             .join(name);
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
@@ -1425,55 +1385,6 @@ pub(crate) mod tests {
 
     // --- discovery -----------------------------------------------------------
 
-    fn strings(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn command_line_credentials() {
-        let args = strings(&[
-            r"C:\Riot Games\League of Legends\LeagueClientUx.exe",
-            "--riotclient-auth-token=riotTok",
-            "--riotclient-app-port=50000",
-            "--no-rads",
-            "--disable-self-update",
-            "--region=EUW",
-            "--locale=en_GB",
-            "--remoting-auth-token=Xy-12_abcDEF",
-            "--respawn-command=LeagueClient.exe",
-            "--respawn-display-name=League of Legends",
-            "--app-port=54321",
-            r"--install-directory=C:\Riot Games\League of Legends",
-            "--app-name=LeagueClient",
-            "--ux-name=LeagueClientUx",
-        ]);
-        assert_eq!(
-            parse_command_line(&args),
-            Some(Credentials {
-                port: 54321,
-                token: "Xy-12_abcDEF".into()
-            })
-        );
-
-        // Whole command line as one quoted string.
-        let one = strings(&[
-            r#""C:\Riot Games\League of Legends\LeagueClientUx.exe" "--remoting-auth-token=tok" "--app-port=1234""#,
-        ]);
-        assert_eq!(
-            parse_command_line(&one),
-            Some(Credentials {
-                port: 1234,
-                token: "tok".into()
-            })
-        );
-
-        assert_eq!(parse_command_line(&strings(&["--app-port=1234"])), None);
-        assert_eq!(
-            parse_command_line(&strings(&["--app-port=x", "--remoting-auth-token=t"])),
-            None
-        );
-    }
-
     #[test]
     fn lockfile_credentials() {
         assert_eq!(
@@ -1489,15 +1400,22 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn process_names() {
-        assert!(is_process_named("LeagueClientUx.exe", "LeagueClientUx.exe"));
-        assert!(is_process_named("leagueclientux.EXE", "LeagueClientUx.exe"));
-        assert!(is_process_named("LeagueClientUx", "LeagueClientUx.exe"));
-        assert!(!is_process_named(
-            "LeagueClientUxRender.exe",
-            "LeagueClientUx.exe"
-        ));
-        assert!(!is_process_named("LeagueClient.exe", "LeagueClientUx.exe"));
+    fn product_settings_install_path() {
+        let yaml = "product_install_full_path: \"D:/Games/Riot Games/League of Legends\"\nproduct_install_root: \"D:/Games/Riot Games\"\n";
+        assert_eq!(
+            parse_product_install_path(yaml),
+            Some(PathBuf::from("D:/Games/Riot Games/League of Legends"))
+        );
+        assert_eq!(
+            parse_product_install_path("product_install_root: \"C:/x\""),
+            None
+        );
+        assert_eq!(
+            parse_product_install_path("product_install_full_path: \"\""),
+            None
+        );
+        // The default install folder is always a candidate.
+        assert!(install_dirs().contains(&PathBuf::from(DEFAULT_INSTALL_DIR)));
     }
 
     #[test]

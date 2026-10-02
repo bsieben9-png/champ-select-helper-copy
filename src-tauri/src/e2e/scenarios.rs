@@ -939,10 +939,6 @@ async fn transport_error_after_lock_in_does_not_reimport() {
 /// against the owner's rule "auto-import runs exactly once ... your own edits
 /// after lock-in are safe".
 #[tokio::test]
-#[ignore = "BUG: one error answer from the League client after lock-in (gameflow-phase 503 -> \
-            phase None, or champ-select session 404) resets the once-per-champ-select memory \
-            (watcher.rs tick: left_champ_select / `last_import = None`), so the next poll \
-            re-imports and overwrites the user's edited rune page"]
 async fn error_answer_after_lock_in_does_not_reimport() {
     for (path, status) in [
         ("/lol-gameflow/v1/gameflow-phase", 503),

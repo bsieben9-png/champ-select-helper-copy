@@ -15,6 +15,11 @@ use crate::AppState;
 const DISCOVER_INTERVAL: Duration = Duration::from_secs(3);
 /// How often to poll status / champ select while connected.
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// Forget the once-per-champ-select import only after this many polls in a
+/// row outside champ select. A single error reply (phase 503 → "None", or a
+/// session 404) must not count as "left champ select", or the next poll would
+/// re-import over the user's edits. A real dodge/requeue takes far longer.
+const LEAVE_POLLS: u32 = 3;
 /// Retry a failed auto-import (e.g. u.gg unreachable) after this long.
 const IMPORT_RETRY: Duration = Duration::from_secs(15);
 /// Retry loading u.gg primary roles after this long when it failed.
@@ -39,6 +44,8 @@ pub(crate) struct Watcher {
     /// Auto-import done/attempted in the current champ select (reset when
     /// leaving champ select).
     last_import: Option<LastImport>,
+    /// Consecutive polls that looked like "not in champ select".
+    polls_outside: u32,
     last_error: Option<String>,
 }
 
@@ -99,9 +106,15 @@ impl Watcher {
             Ok(cs) => {
                 set_champ_select(app, &state, cs.clone()).await;
                 if cs.in_champ_select {
+                    self.polls_outside = 0;
                     self.auto_import(app, &state, &client, &cs).await;
                 } else {
-                    self.last_import = None;
+                    // Session 404 while the phase still says ChampSelect:
+                    // treat as transient, never as a new champ select.
+                    self.polls_outside += 1;
+                    if self.polls_outside >= LEAVE_POLLS {
+                        self.last_import = None;
+                    }
                 }
             }
             Err(e) => self.log(format!("Reading champ select failed: {e:#}")),
@@ -132,7 +145,10 @@ impl Watcher {
     /// next champ select (e.g. after a dodge) imports again.
     async fn left_champ_select<R: Runtime>(&mut self, app: &AppHandle<R>, state: &AppState) {
         set_champ_select(app, state, ChampSelectState::default()).await;
-        self.last_import = None;
+        self.polls_outside += 1;
+        if self.polls_outside >= LEAVE_POLLS {
+            self.last_import = None;
+        }
     }
 
     /// Fetch u.gg primary roles once; retry later if it failed.
@@ -412,7 +428,9 @@ mod tests {
 
             // The next champ select imports again.
             mock.lock().unwrap().session = None;
-            w.tick(handle).await;
+            for _ in 0..LEAVE_POLLS {
+                w.tick(handle).await;
+            }
             mock.lock().unwrap().session = Some(fixture("champ_select_ranked.json"));
             w.tick(handle).await;
             assert_eq!(posts(), 2);
@@ -443,7 +461,9 @@ mod tests {
 
             // The next champ select imports at lock-in.
             mock.lock().unwrap().session = None;
-            w.tick(handle).await;
+            for _ in 0..LEAVE_POLLS {
+                w.tick(handle).await;
+            }
             mock.lock().unwrap().session = Some(fixture("champ_select_ranked.json"));
             w.tick(handle).await;
             assert_eq!(posts(), 1);

@@ -37,8 +37,13 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
   after lock-in, item-set wipe on an odd GET, perk order for the client, static data needing u.gg,
   wrong queue in the overwrite dialog, Import enabled while loading). Leftovers worth doing:
   the watcher's u.gg calls can stall champ-select updates for 8-15 s when u.gg hangs (move build
-  fetching off the poll loop); a 404 session while phase=ChampSelect resets import memory; champion
+  fetching off the poll loop); champion
   roles never reload after a patch change; "already imported" isn't persisted across app restarts.
+
+- **End-to-end tests: MERGED** (`src-tauri/src/e2e/`: fake League client + scenarios; live sweep of all
+  173 champions = 0 problems; real-app smoke test `scripts/smoke/run.sh` 13/13; see `docs/TESTING.md`).
+  The bug it found (one error reply from League after lock-in caused a second import) is FIXED:
+  the import memory is only forgotten after 3 polls in a row outside champ select. 90 tests pass.
 
 ## Next steps after that
 1. Merge the review/test results (branches `wip/review`, `wip/tests` if not on main yet). Optional: fill augment descriptions/pick rates from OP.GG's Mayhem page (sample in `src-tauri/tests/fixtures/other_sources/opgg_mayhem_augments_83.json`).

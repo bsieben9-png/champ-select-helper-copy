@@ -3,6 +3,7 @@ mod ddragon;
 mod e2e;
 mod http_cache;
 mod lcu;
+mod lobby;
 pub mod model;
 mod settings;
 mod ugg;
@@ -141,6 +142,12 @@ async fn get_champ_select(state: State<'_, AppState>) -> CmdResult<ChampSelectSt
     Ok(state.champ_select.read().await.clone())
 }
 
+/// The lobby before queueing (my Swiftplay / Quickplay slots).
+#[tauri::command]
+async fn get_lobby(store: State<'_, lobby::LobbyStore>) -> CmdResult<LobbyState> {
+    Ok(store.lobby.read().await.clone())
+}
+
 #[tauri::command]
 async fn get_lcu_status(state: State<'_, AppState>) -> CmdResult<LcuStatus> {
     Ok(state.lcu_status.read().await.clone())
@@ -185,7 +192,9 @@ pub fn run() {
                 static_data: RwLock::new(None),
             };
             app.manage(state);
+            app.manage(lobby::LobbyStore::default());
             watcher::spawn(app.handle().clone());
+            lobby::spawn(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -199,6 +208,7 @@ pub fn run() {
             get_champ_select,
             get_lcu_status,
             import_build,
+            get_lobby,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Champ Select Helper");

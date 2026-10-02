@@ -35,6 +35,9 @@ const RUNE_PAGE_NAME_MAX: usize = 25;
 /// Summoner's Rift / Howling Abyss map ids for item sets.
 const MAP_SUMMONERS_RIFT: u32 = 11;
 const MAP_HOWLING_ABYSS: u32 = 12;
+/// Read only. The app never writes to the lobby (owner rule: nothing that
+/// changes lobby / champ select / summoner spells, only rune pages + item sets).
+const LOBBY: &str = "/lol-lobby/v2/lobby";
 
 #[derive(Clone)]
 pub struct LcuClient {
@@ -234,6 +237,18 @@ impl LcuClient {
         Ok(parse_champ_select(&session, queue_id, roles))
     }
 
+    /// The lobby (`GET /lol-lobby/v2/lobby`); default/not-in-lobby when none.
+    pub async fn lobby(&self) -> anyhow::Result<LobbyState> {
+        let (st, lobby) = self.request(Method::GET, LOBBY, None).await?;
+        if st == StatusCode::NOT_FOUND {
+            return Ok(LobbyState::default());
+        }
+        if !st.is_success() {
+            bail!("GET {LOBBY}: {}", http_error(st, &lobby));
+        }
+        Ok(parse_lobby(&lobby))
+    }
+
     /// Push the rune page and item set (per settings toggles) into the
     /// client. Summoner spells are never changed. Never panics; failures are
     /// reported in `ImportResult.messages`.
@@ -312,18 +327,8 @@ impl LcuClient {
         overwrite: Option<u64>,
     ) -> anyhow::Result<RunesOutcome> {
         let runes = &build.runes;
-        if runes.primary_style == 0
-            || runes.sub_style == 0
-            || runes.perks.len() != 6
-            || runes.shards.len() != 3
-        {
-            bail!("the build has an incomplete rune page");
-        }
+        let selected = selected_perk_ids(runes, static_data)?;
         let mut notes = Vec::new();
-        let selected: Vec<u32> = ordered_perks(runes, static_data)
-            .into_iter()
-            .chain(runes.shards.iter().copied())
-            .collect();
         let body = json!({
             "name": name,
             "primaryStyleId": runes.primary_style,
@@ -647,11 +652,20 @@ pub fn parse_champ_select(
             .or(hovered)
             .or_else(|| nonzero(num(p, "championPickIntent")))
     });
+    // Swiftplay / Quickplay: the champion (and its runes) were picked in the
+    // lobby and the client only shows a short "skip champion select" screen.
+    // Nothing gets locked in here, so nothing is auto-imported: the runes for
+    // this game are the ones the user chose for the lobby slot, and a rune
+    // page made current now must not compete with them. (Lobby builds are
+    // imported by hand only, see `lobby.rs`.)
+    let skip_select = flag(session, "skipChampionSelect");
+    let lobby_pick = queue.is_some_and(Queue::is_lobby_pick);
     let my_champion_locked = my_champion_id.is_some()
+        && !skip_select
         && if my_picks.is_empty() {
             // ARAM / all-random: no pick actions — the assigned champion is final
             // (bench swaps/rerolls just change the champion id).
-            me.is_some_and(|p| num(p, "championId") != 0)
+            !lobby_pick && me.is_some_and(|p| num(p, "championId") != 0)
         } else {
             // Any completed own pick (trades can later change the champion id).
             my_picks.iter().any(|a| flag(a, "completed"))
@@ -765,6 +779,57 @@ pub fn parse_champ_select(
         lane_opponent_id,
         bans,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Lobby (Swiftplay / Quickplay slots)
+// ---------------------------------------------------------------------------
+
+/// Pure: turn a `/lol-lobby/v2/lobby` JSON into our state. My slots are only
+/// read for lobby-pick queues (Swiftplay / Quickplay), where
+/// `gameConfig.showQuickPlaySlotSelection` is true.
+pub fn parse_lobby(lobby: &Value) -> LobbyState {
+    let config = lobby.get("gameConfig").unwrap_or(&Value::Null);
+    let queue_id = config
+        .get("queueId")
+        .and_then(Value::as_i64)
+        .filter(|&q| q > 0);
+    let mut queue = queue_id.and_then(Queue::from_lcu_queue_id);
+    let lobby_pick =
+        flag(config, "showQuickPlaySlotSelection") || queue.is_some_and(Queue::is_lobby_pick);
+    if lobby_pick && queue.is_none() {
+        // A new lobby-pick queue id we don't know yet.
+        queue = Some(Queue::Swiftplay);
+    }
+    let slots = if lobby_pick {
+        lobby
+            .pointer("/localMember/playerSlots")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .map(|(index, slot)| LobbySlot {
+                index,
+                champion_id: nonzero(num(slot, "championId")),
+                role: slot_position(slot),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    LobbyState {
+        in_lobby: true,
+        queue_id,
+        queue,
+        slots,
+    }
+}
+
+/// A slot's role from `positionPreference` ("FILL" / "UNSELECTED" → None).
+fn slot_position(slot: &Value) -> Option<Role> {
+    slot.get("positionPreference")
+        .and_then(Value::as_str)
+        .and_then(Role::from_lcu_position)
 }
 
 /// Score for playing a champion in its k-th most played role.
@@ -997,6 +1062,25 @@ fn ordered_perks(runes: &RunePage, static_data: Option<&StaticData>) -> Vec<u32>
     } else {
         original
     }
+}
+
+/// The 9 ids of a rune page as the client wants them: the 6 perks in slot
+/// order, then the 3 shards.
+fn selected_perk_ids(
+    runes: &RunePage,
+    static_data: Option<&StaticData>,
+) -> anyhow::Result<Vec<u32>> {
+    if runes.primary_style == 0
+        || runes.sub_style == 0
+        || runes.perks.len() != 6
+        || runes.shards.len() != 3
+    {
+        bail!("the build has an incomplete rune page");
+    }
+    Ok(ordered_perks(runes, static_data)
+        .into_iter()
+        .chain(runes.shards.iter().copied())
+        .collect())
 }
 
 fn truncate_chars(s: &str, max: usize) -> String {

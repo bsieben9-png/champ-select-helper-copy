@@ -60,6 +60,8 @@ pub struct FakeState {
     pub queue_id: Option<i64>,
     /// `/lol-champ-select/v1/session`; None → 404 "No active delegate".
     pub session: Option<Value>,
+    /// `/lol-lobby/v2/lobby`; None → 404 (not in a lobby).
+    pub lobby: Option<Value>,
     pub summoner: Value,
     pub pages: Vec<Value>,
     /// Custom rune page slots the account owns.
@@ -117,6 +119,7 @@ impl FakeState {
             phase: "None".into(),
             queue_id: None,
             session: None,
+            lobby: None,
             summoner: lcu_fixture("current_summoner.json"),
             pages: lcu_fixture("perks_pages.json").as_array().unwrap().clone(),
             owned_pages: 5,
@@ -193,6 +196,25 @@ impl FakeState {
         page["lastModified"] = json!(1791999999999u64);
     }
 
+    /// The user picks `champion` for lobby slot `index` in the client: like
+    /// the client, the slot also gets the default skin and the last rune page
+    /// used for that champion and position.
+    pub fn user_picks_in_slot(&mut self, index: usize, champion: i64) {
+        let slot = &mut self.lobby.as_mut().expect("in a lobby")["localMember"]["playerSlots"]
+            [index];
+        slot["championId"] = json!(champion);
+        slot["skinId"] = json!(champion * 1000);
+        slot["perks"] = json!(users_last_used_perks());
+    }
+
+    /// The user swaps the two lobby slots (the client reverses the array).
+    pub fn user_swaps_slots(&mut self) {
+        let slots = &mut self.lobby.as_mut().expect("in a lobby")["localMember"]["playerSlots"];
+        if let Some(a) = slots.as_array_mut() {
+            a.reverse();
+        }
+    }
+
     fn custom_pages(&self) -> u64 {
         self.pages
             .iter()
@@ -250,6 +272,21 @@ impl FakeState {
                 Some(s) => (200, s.clone()),
                 None => not_found("No active delegate"),
             },
+            ("GET", "/lol-lobby/v2/lobby") => match &self.lobby {
+                Some(l) => (200, l.clone()),
+                None => not_found("LOBBY_NOT_FOUND"),
+            },
+            ("GET", "/lol-lobby/v1/lobby/members/localMember/player-slots") => {
+                match &self.lobby {
+                    Some(l) => (200, l["localMember"]["playerSlots"].clone()),
+                    None => not_found("LOBBY_NOT_FOUND"),
+                }
+            }
+            (_, p) if p.starts_with("/lol-lobby/") || p.starts_with("/lol-matchmaking/") => {
+                // Writing to the lobby / queue: recorded so tests can assert
+                // it never happens (owner rule).
+                (204, Value::Null)
+            }
             (_, p) if p.starts_with("/lol-champ-select/") => {
                 // e.g. PATCH .../session/my-selection (summoner spells):
                 // recorded so tests can assert it never happens.
@@ -546,33 +583,73 @@ async fn serve_one(
     write.shutdown().await
 }
 
+
 // ---------------------------------------------------------------------------
 // Scripted champ select sessions
 // ---------------------------------------------------------------------------
+//
+// Shapes follow the client's `/lol-champ-select/v1/session` (LCU schema
+// `ChampSelectSession` for patch 16.19 in dysolix/hasagi-types, LeagueAkari's
+// types): `actions` is a list of turns, each a list of simultaneous actions
+// `{actorCellId, championId, completed, id, isAllyAction, isInProgress,
+// pickTurn, type}` with type "ban" / "ten_bans_reveal" / "pick"; `timer.phase`
+// is PLANNING → BAN_PICK → FINALIZATION → GAME_STARTING; `assignedPosition` is
+// "top" / "jungle" / "middle" / "bottom" / "utility" for my team and "" for
+// the enemy; ARAM-style queues have no actions, a bench (`benchEnabled`,
+// `benchChampions`, `rerollsRemaining`) and no visible enemy team; Swiftplay
+// sends `skipChampionSelect: true` (the client then shows a replacement
+// screen instead of champ select — `rcp-fe-lol-champ-select`).
+
+/// Ranked / draft pick order (cells 0-4 blue, 5-9 red): 1-2-2-2-2-1.
+const DRAFT_PICK_TURNS: [&[i64]; 6] = [&[0], &[5, 6], &[1, 2], &[7, 8], &[3, 4], &[9]];
+
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    /// Bans, then picks in snake order (420 / 440 / 400).
+    Draft,
+    /// No bans, everyone picks at once (430).
+    Blind,
+    /// ARAM / Mayhem: champion assigned, rerolls + bench, no actions.
+    Aram,
+    /// Swiftplay: champions picked in the lobby, `skipChampionSelect`.
+    Skip,
+}
 
 /// Builds `/lol-champ-select/v1/session` documents shaped like the real
-/// client's, step by step: planning intent → hover → lock → enemy picks.
+/// client's, step by step: planning intent → bans → hover → lock → enemy picks
+/// → trades → finalization.
 #[derive(Clone)]
 pub struct Draft {
     pub queue_id: i64,
     pub local_cell: i64,
+    kind: Kind,
     /// (cellId, assignedPosition, championId, championPickIntent)
     my_team: Vec<(i64, &'static str, u32, u32)>,
     /// (cellId, championId) — positions are hidden for the enemy team.
     their_team: Vec<(i64, u32)>,
-    /// Pick actions: (actorCellId, championId, completed, isInProgress).
+    /// Ban per cell: (championId, completed, isInProgress).
+    bans: Vec<(i64, u32, bool, bool)>,
+    /// Pick per cell: (championId, completed, isInProgress).
     picks: Vec<(i64, u32, bool, bool)>,
     timer_phase: &'static str,
-    /// ARAM: no pick actions, a bench.
     bench: Vec<u32>,
+    rerolls: i64,
+    /// Cells I can trade with (FINALIZATION).
+    trades: Vec<i64>,
 }
 
 impl Draft {
-    /// Ranked solo/duo, me = cell 2 (top), nobody picked yet.
+    /// Ranked solo/duo, me = cell 2 (top), planning phase: nothing picked yet.
     pub fn ranked() -> Draft {
+        Draft::draft(420)
+    }
+
+    /// Any draft queue with bans and assigned positions (420, 440, 400).
+    pub fn draft(queue_id: i64) -> Draft {
         Draft {
-            queue_id: 420,
+            queue_id,
             local_cell: 2,
+            kind: Kind::Draft,
             my_team: vec![
                 (0, "jungle", 0, 0),
                 (1, "middle", 0, 0),
@@ -581,27 +658,34 @@ impl Draft {
                 (4, "utility", 0, 0),
             ],
             their_team: (5..10).map(|c| (c, 0)).collect(),
+            bans: (0..10).map(|c| (c, 0, false, false)).collect(),
             picks: (0..10).map(|c| (c, 0, false, false)).collect(),
             timer_phase: "PLANNING",
             bench: Vec::new(),
+            rerolls: 0,
+            trades: Vec::new(),
         }
     }
 
     /// Normal blind pick (430): no assigned positions, simultaneous picks.
     pub fn blind() -> Draft {
-        let mut d = Draft::ranked();
-        d.queue_id = 430;
+        let mut d = Draft::draft(430);
+        d.kind = Kind::Blind;
+        d.timer_phase = "BAN_PICK";
+        d.bans.clear();
         for p in &mut d.my_team {
             p.1 = "";
         }
         d
     }
 
-    /// ARAM (queue 450) / Mayhem (2400): champion assigned, no pick actions.
+    /// ARAM (450) / Mayhem (2400, 2450): champion assigned at the start, no
+    /// pick actions, a shared bench and rerolls, the enemy team hidden.
     pub fn aram(queue_id: i64, my_champion: u32, bench: Vec<u32>) -> Draft {
         Draft {
             queue_id,
             local_cell: 7,
+            kind: Kind::Aram,
             my_team: vec![
                 (5, "", 222, 0),
                 (6, "", 412, 0),
@@ -610,10 +694,33 @@ impl Draft {
                 (9, "", 86, 0),
             ],
             their_team: Vec::new(),
+            bans: Vec::new(),
             picks: Vec::new(),
             timer_phase: "BAN_PICK",
             bench,
+            rerolls: 1,
+            trades: Vec::new(),
         }
+    }
+
+    /// Swiftplay (480): what the client shows for a few seconds between the
+    /// ready check and the game — `skipChampionSelect`, champions already set
+    /// from the lobby slots. (Exact content only known from the schema: the
+    /// replacement screen hides it in the real client.)
+    pub fn swiftplay(queue_id: i64, my_champion: u32, my_position: &'static str) -> Draft {
+        let mut d = Draft::draft(queue_id);
+        d.kind = Kind::Skip;
+        d.timer_phase = "FINALIZATION";
+        d.bans.clear();
+        d.picks.clear();
+        d.my_team = vec![
+            (0, "jungle", 64, 0),
+            (1, "middle", 103, 0),
+            (2, my_position, my_champion, 0),
+            (3, "bottom", 222, 0),
+            (4, "utility", 412, 0),
+        ];
+        d
     }
 
     fn me(&mut self) -> &mut (i64, &'static str, u32, u32) {
@@ -621,9 +728,12 @@ impl Draft {
         self.my_team.iter_mut().find(|p| p.0 == cell).unwrap()
     }
 
-    fn my_pick(&mut self) -> &mut (i64, u32, bool, bool) {
-        let cell = self.local_cell;
+    fn pick_of(&mut self, cell: i64) -> &mut (i64, u32, bool, bool) {
         self.picks.iter_mut().find(|p| p.0 == cell).unwrap()
+    }
+
+    fn ban_of(&mut self, cell: i64) -> &mut (i64, u32, bool, bool) {
+        self.bans.iter_mut().find(|p| p.0 == cell).unwrap()
     }
 
     /// Planning phase: declare an intent.
@@ -632,11 +742,38 @@ impl Draft {
         self
     }
 
+    /// Ban phase, my turn: hovering a ban (not my champion!).
+    pub fn banning(mut self, champion: u32) -> Draft {
+        self.timer_phase = "BAN_PICK";
+        let cell = self.local_cell;
+        *self.ban_of(cell) = (cell, champion, false, true);
+        self
+    }
+
+    /// Every ban done (mine is `my_ban`), bans revealed.
+    pub fn bans_done(mut self, my_ban: u32) -> Draft {
+        self.timer_phase = "BAN_PICK";
+        const OTHERS: [u32; 10] = [157, 238, 0, 266, 555, 875, 360, 10, 24, 893];
+        for (i, ban) in self.bans.iter_mut().enumerate() {
+            let champion = if ban.0 == self.local_cell {
+                my_ban
+            } else {
+                OTHERS[i]
+            };
+            *ban = (ban.0, champion, true, false);
+        }
+        self
+    }
+
     /// My pick turn: hovering a champion (not locked).
     pub fn hover(mut self, champion: u32) -> Draft {
         self.timer_phase = "BAN_PICK";
+        if self.kind == Kind::Draft && self.bans.iter().any(|b| !b.2) {
+            self = self.bans_done(0);
+        }
         self.me().2 = champion;
-        *self.my_pick() = (self.local_cell, champion, false, true);
+        let cell = self.local_cell;
+        *self.pick_of(cell) = (cell, champion, false, true);
         self
     }
 
@@ -644,38 +781,89 @@ impl Draft {
     pub fn lock(mut self) -> Draft {
         let champion = self.me().2;
         assert_ne!(champion, 0, "hover before locking");
-        *self.my_pick() = (self.local_cell, champion, true, false);
+        let cell = self.local_cell;
+        *self.pick_of(cell) = (cell, champion, true, false);
         self
     }
 
     /// Enemy `slot` (0..5) locks `champion`.
     pub fn enemy_locks(mut self, slot: usize, champion: u32) -> Draft {
         self.timer_phase = "BAN_PICK";
+        if self.kind == Kind::Draft && self.bans.iter().any(|b| !b.2) {
+            self = self.bans_done(0);
+        }
         let cell = self.their_team[slot].0;
         self.their_team[slot].1 = champion;
-        let pick = self.picks.iter_mut().find(|p| p.0 == cell).unwrap();
-        *pick = (cell, champion, true, false);
+        *self.pick_of(cell) = (cell, champion, true, false);
         self
     }
 
-    /// ARAM bench swap / reroll: my champion changes.
+    /// Teammate `cell` locks `champion`.
+    pub fn ally_locks(mut self, cell: i64, champion: u32) -> Draft {
+        let member = self.my_team.iter_mut().find(|p| p.0 == cell).unwrap();
+        member.2 = champion;
+        *self.pick_of(cell) = (cell, champion, true, false);
+        self
+    }
+
+    /// ARAM bench swap: I take `champion` from the bench, mine goes there.
     pub fn swap_to(mut self, champion: u32) -> Draft {
         let old = self.me().2;
         self.me().2 = champion;
         self.bench.retain(|&c| c != champion);
-        self.bench.push(old);
+        if old != 0 {
+            self.bench.push(old);
+        }
         self
     }
 
-    /// Champion trade with a teammate after locking in.
+    /// ARAM reroll: a new random champion, the old one goes to the bench.
+    pub fn reroll(mut self, champion: u32) -> Draft {
+        assert!(self.rerolls > 0, "no rerolls left");
+        self.rerolls -= 1;
+        self.swap_to(champion)
+    }
+
+    /// The moment of a bench swap / trade where the client briefly shows no
+    /// champion for me.
+    pub fn no_champion(mut self) -> Draft {
+        self.me().2 = 0;
+        self
+    }
+
+    /// Champion trade with the teammate who has `champion`, after picks
+    /// (FINALIZATION): the two champion ids swap; pick actions keep the
+    /// originally locked champions, as in the client.
     pub fn traded_to(mut self, champion: u32) -> Draft {
-        self.timer_phase = "FINALIZATION";
+        self = self.finalization();
+        let mine = self.me().2;
+        if let Some(other) = self
+            .my_team
+            .iter_mut()
+            .find(|p| p.2 == champion && p.0 != self.local_cell)
+        {
+            other.2 = mine;
+        }
         self.me().2 = champion;
         self
     }
 
     pub fn finalization(mut self) -> Draft {
         self.timer_phase = "FINALIZATION";
+        if self.kind == Kind::Draft {
+            self.trades = self
+                .my_team
+                .iter()
+                .map(|p| p.0)
+                .filter(|&c| c != self.local_cell)
+                .collect();
+        }
+        self
+    }
+
+    pub fn game_starting(mut self) -> Draft {
+        self.timer_phase = "GAME_STARTING";
+        self.trades.clear();
         self
     }
 
@@ -689,15 +877,24 @@ impl Draft {
                     "cellId": cell,
                     "championId": champ,
                     "championPickIntent": intent,
-                    "gameName": "",
+                    "gameName": if cell == self.local_cell { "Yorick Main" } else { "" },
+                    "internalName": "",
+                    "isAutofilled": false,
                     "isHumanoid": false,
                     "nameVisibilityType": "VISIBLE",
+                    "obfuscatedPuuid": "",
+                    "obfuscatedSummonerId": 0,
+                    "pickMode": 0,
+                    "pickTurn": 0,
+                    "playerAlias": "",
                     "playerType": "PLAYER",
+                    "puuid": "",
                     "selectedSkinId": champ * 1000,
                     "spell1Id": 4,
                     "spell2Id": 12,
-                    "summonerId": if cell == self.local_cell { super::fake_lcu::SUMMONER_ID } else { 0 },
-                    "team": 1,
+                    "summonerId": if cell == self.local_cell { SUMMONER_ID } else { 0 },
+                    "tagLine": "",
+                    "team": if cell < 5 { 1 } else { 2 },
                     "wardSkinId": -1,
                 })
             })
@@ -712,48 +909,226 @@ impl Draft {
                     "championId": champ,
                     "championPickIntent": 0,
                     "nameVisibilityType": "HIDDEN",
+                    "selectedSkinId": champ * 1000,
                     "spell1Id": 0,
                     "spell2Id": 0,
                     "summonerId": 0,
                     "team": 2,
+                    "wardSkinId": -1,
                 })
             })
             .collect();
+
         let mut id = 0;
-        let actions: Vec<Value> = self
-            .picks
-            .iter()
-            .map(|&(actor, champ, completed, in_progress)| {
-                id += 1;
-                json!([{
-                    "actorCellId": actor,
-                    "championId": champ,
-                    "completed": completed,
-                    "id": id,
-                    "isAllyAction": actor < 5,
-                    "isInProgress": in_progress,
-                    "pickTurn": 1,
-                    "type": "pick",
-                }])
+        let mut action = |actor: i64, champ: u32, completed: bool, in_progress: bool, kind: &str, turn: i64| {
+            id += 1;
+            json!({
+                "actorCellId": actor,
+                "championId": champ,
+                "completed": completed,
+                "duration": 0,
+                "id": id,
+                "isAllyAction": actor < 5,
+                "isInProgress": in_progress,
+                "pickTurn": turn,
+                "type": kind,
             })
-            .collect();
+        };
+        let actions: Vec<Value> = match self.kind {
+            Kind::Draft => {
+                let mut turns = Vec::new();
+                let bans_done = self.bans.iter().all(|b| b.2);
+                turns.push(Value::Array(
+                    self.bans
+                        .iter()
+                        .map(|&(c, ch, done, prog)| action(c, ch, done, prog, "ban", 1))
+                        .collect(),
+                ));
+                turns.push(json!([action(-1, 0, bans_done, false, "ten_bans_reveal", 1)]));
+                for (t, cells) in DRAFT_PICK_TURNS.iter().enumerate() {
+                    turns.push(Value::Array(
+                        cells
+                            .iter()
+                            .map(|&c| {
+                                let p = self.picks.iter().find(|p| p.0 == c).unwrap();
+                                action(c, p.1, p.2, p.3, "pick", t as i64 + 1)
+                            })
+                            .collect(),
+                    ));
+                }
+                turns
+            }
+            Kind::Blind => vec![Value::Array(
+                self.picks
+                    .iter()
+                    .map(|&(c, ch, done, prog)| action(c, ch, done, prog, "pick", 1))
+                    .collect(),
+            )],
+            Kind::Aram | Kind::Skip => Vec::new(),
+        };
+        let aram = self.kind == Kind::Aram;
         json!({
             "actions": actions,
-            "allowRerolling": !self.bench.is_empty(),
-            "bans": {"myTeamBans": [], "numBans": 0, "theirTeamBans": []},
+            "allowBattleBoost": false,
+            "allowDuplicatePicks": false,
+            "allowLockedEvents": false,
+            "allowPlayerPickSameChampion": false,
+            "allowRerolling": aram,
+            "allowSkinSelection": true,
+            "allowSubsetChampionPicks": false,
+            "bans": {
+                "myTeamBans": if self.bans.iter().all(|b| b.2) && !self.bans.is_empty() {
+                    self.bans.iter().filter(|b| b.0 < 5).map(|b| b.1).collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                },
+                "numBans": self.bans.len(),
+                "theirTeamBans": if self.bans.iter().all(|b| b.2) && !self.bans.is_empty() {
+                    self.bans.iter().filter(|b| b.0 >= 5).map(|b| b.1).collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                },
+            },
             "benchChampions": self.bench.iter().map(|c| json!({"championId": c, "isPriority": false})).collect::<Vec<_>>(),
-            "benchEnabled": !self.bench.is_empty(),
+            "benchEnabled": aram,
+            "boostableSkinCount": 1,
+            "chatDetails": {"mucJwtDto": {"channelClaim": "", "domain": "", "jwt": "", "targetRegion": ""}, "multiUserChatId": "", "multiUserChatPassword": ""},
+            "counter": id,
+            "disallowBanningTeammateHoveredChampions": false,
             "gameId": 7212345678u64,
-            "hasSimultaneousBans": true,
-            "hasSimultaneousPicks": self.picks.is_empty(),
+            "hasSimultaneousBans": self.kind == Kind::Draft,
+            "hasSimultaneousPicks": self.kind != Kind::Draft,
+            "id": "8c1f0f2e-3c9a-4f0e-9a51-2b7d6c4e5f60",
             "isCustomGame": false,
+            "isLegacyChampSelect": false,
             "isSpectating": false,
             "localPlayerCellId": self.local_cell,
+            "lockedEventIndex": -1,
             "myTeam": my_team,
+            "pickOrderSwaps": [],
+            "positionSwaps": [],
             "queueId": self.queue_id,
+            "rerollsRemaining": self.rerolls,
+            "showQuitButton": false,
+            "skipChampionSelect": self.kind == Kind::Skip,
             "theirTeam": their_team,
-            "timer": {"adjustedTimeLeftInPhase": 20000, "isInfinite": false, "phase": self.timer_phase, "totalTimeInPhase": 30000},
-            "trades": [],
+            "timer": {"adjustedTimeLeftInPhase": 20000, "internalNowInEpochMs": 1791012345678u64, "isInfinite": false, "phase": self.timer_phase, "totalTimeInPhase": 30000},
+            "trades": self.trades.iter().enumerate().map(|(i, c)| json!({"cellId": c, "id": i + 1, "state": "AVAILABLE"})).collect::<Vec<_>>(),
         })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Swiftplay / Quickplay lobby
+// ---------------------------------------------------------------------------
+
+/// `perks` string of a slot (`{"perkIds":[…9],"perkStyle":…,"perkSubStyle":…}`).
+pub fn slot_perks(style: u32, sub_style: u32, ids: [u32; 9]) -> String {
+    json!({"perkIds": ids, "perkStyle": style, "perkSubStyle": sub_style}).to_string()
+}
+
+/// What the client puts in a slot when you pick a champion: your last used
+/// page for that champion and position (here: "My Conqueror").
+pub fn users_last_used_perks() -> String {
+    slot_perks(
+        8000,
+        8400,
+        [8010, 9111, 9105, 8299, 8444, 8451, 5005, 5008, 5001],
+    )
+}
+
+/// `/lol-lobby/v2/lobby` of a Swiftplay (480) / Quickplay (490) lobby with my
+/// slots (champion -1 = none). Shape: LCU schema `LolLobbyLobbyDto` with
+/// `localMember.playerSlots: LolLobbyQuickPlayPresetSlotDto[]`.
+pub fn swiftplay_lobby(queue_id: i64, slots: &[(i64, &str)]) -> Value {
+    let player_slots: Vec<Value> = slots
+        .iter()
+        .map(|&(champion, position)| {
+            json!({
+                "championId": champion,
+                "perks": if champion > 0 { users_last_used_perks() } else { String::new() },
+                "positionPreference": position,
+                "skinId": if champion > 0 { champion * 1000 } else { 0 },
+                "spell1": 4,
+                "spell2": if position == "JUNGLE" { 11 } else { 14 },
+            })
+        })
+        .collect();
+    let member = json!({
+        "allowedChangeActivity": true,
+        "allowedInviteOthers": true,
+        "allowedKickOthers": true,
+        "allowedStartActivity": true,
+        "allowedToggleInvite": true,
+        "autoFillEligible": false,
+        "autoFillProtectedForPromos": false,
+        "autoFillProtectedForRemedy": false,
+        "autoFillProtectedForSoloing": false,
+        "autoFillProtectedForStreaking": false,
+        "botChampionId": 0,
+        "botDifficulty": "NONE",
+        "botId": "",
+        "botPosition": "",
+        "botUuid": "",
+        "firstPositionPreference": slots.first().map_or("", |s| s.1),
+        "isBot": false,
+        "isLeader": true,
+        "isSpectator": false,
+        "playerSlots": player_slots,
+        "puuid": "9f0e8d7c-6b5a-4938-2716-05f4e3d2c1b0",
+        "ready": true,
+        "secondPositionPreference": slots.get(1).map_or("", |s| s.1),
+        "showGhostedBanner": false,
+        "summonerIconId": 29,
+        "summonerId": SUMMONER_ID,
+        "summonerInternalName": "",
+        "summonerLevel": 412,
+        "summonerName": "Yorick Main",
+        "teamId": 0,
+    });
+    json!({
+        "canStartActivity": true,
+        "gameConfig": {
+            "allowablePremadeSizes": [1, 2, 3, 4, 5],
+            "customLobbyName": "",
+            "customMutatorName": "",
+            "customRewardsDisabledReasons": [],
+            "customSpectatorPolicy": "NotAllowed",
+            "customSpectators": [],
+            "customTeam100": [],
+            "customTeam200": [],
+            "gameMode": if (490..=493).contains(&queue_id) { "CLASSIC" } else { "SWIFTPLAY" },
+            "isCustom": false,
+            "isLobbyFull": false,
+            "isTeamBuilderManaged": true,
+            "mapId": 11,
+            "maxHumanPlayers": 0,
+            "maxLobbySize": 5,
+            "maxTeamSize": 5,
+            "pickType": "",
+            "premadeSizeAllowed": true,
+            "queueId": queue_id,
+            "shouldForceScarcePositionSelection": false,
+            "showPositionSelector": true,
+            "showQuickPlaySlotSelection": true,
+        },
+        "invitations": [],
+        "localMember": member.clone(),
+        "members": [member],
+        "partyId": "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0",
+        "partyType": "open",
+        "popularChampions": [],
+        "restrictions": [],
+        "scarcePositions": [],
+        "warnings": [],
+    })
+}
+
+/// A ranked / ARAM lobby (no slots; positions picked for champ select).
+pub fn plain_lobby(queue_id: i64) -> Value {
+    let mut lobby = swiftplay_lobby(queue_id, &[]);
+    lobby["gameConfig"]["showQuickPlaySlotSelection"] = json!(false);
+    lobby["gameConfig"]["gameMode"] = json!(if queue_id == 2400 { "KIWI" } else { "CLASSIC" });
+    lobby["localMember"]["playerSlots"] = json!([]);
+    lobby
 }

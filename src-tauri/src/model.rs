@@ -60,6 +60,10 @@ pub enum Queue {
     RankedFlex,
     NormalDraft,
     NormalBlind,
+    /// Swiftplay (480) and the old Quickplay (490): champion, runes and
+    /// spells are picked per position in the LOBBY; there is no real champ
+    /// select (see DESIGN.md "Swiftplay / Quickplay").
+    Swiftplay,
     Aram,
     AramMayhem,
 }
@@ -68,12 +72,15 @@ impl Queue {
     /// Map a League client queue id to a stats queue. Unknown queues → None.
     /// 2400 = ARAM Mayhem, 2450 = "ARAM Mayhem Classic" (u.gg's names; it
     /// has no separate data anywhere, so it is treated as Mayhem).
+    /// 480-483 / 490-493 are the client's own `QUICKPLAY_AND_SWIFTPLAY_QUEUE_IDS`
+    /// (rcp-fe-lol-parties); Quickplay (490) was replaced by Swiftplay in 25.07.
     pub fn from_lcu_queue_id(id: i64) -> Option<Queue> {
         match id {
             420 => Some(Queue::RankedSolo),
             440 => Some(Queue::RankedFlex),
             400 => Some(Queue::NormalDraft),
-            430 | 480 | 490 => Some(Queue::NormalBlind),
+            430 => Some(Queue::NormalBlind),
+            480..=483 | 490..=493 => Some(Queue::Swiftplay),
             // Clash: draft with lanes, use ranked solo data.
             700 => Some(Queue::NormalDraft),
             450 => Some(Queue::Aram),
@@ -89,7 +96,9 @@ impl Queue {
     /// separate files (see DESIGN.md "ARAM Mayhem").
     pub fn ugg_queue(self) -> &'static str {
         match self {
-            Queue::RankedSolo | Queue::NormalDraft | Queue::NormalBlind => "ranked_solo_5x5",
+            Queue::RankedSolo | Queue::NormalDraft | Queue::NormalBlind | Queue::Swiftplay => {
+                "ranked_solo_5x5"
+            }
             Queue::RankedFlex => "ranked_flex_sr",
             Queue::Aram | Queue::AramMayhem => "normal_aram",
         }
@@ -97,6 +106,12 @@ impl Queue {
 
     pub fn is_aram(self) -> bool {
         matches!(self, Queue::Aram | Queue::AramMayhem)
+    }
+
+    /// Champions are picked in the lobby, before queueing (Swiftplay /
+    /// Quickplay): there is nothing to lock in during "champ select".
+    pub fn is_lobby_pick(self) -> bool {
+        matches!(self, Queue::Swiftplay)
     }
 }
 
@@ -368,6 +383,31 @@ pub struct ChampSelectState {
     pub bans: Vec<u32>,
 }
 
+/// One of my Swiftplay / Quickplay lobby slots: a champion picked for a
+/// position before queueing (`localMember.playerSlots[i]` in the client).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LobbySlot {
+    /// Index in the client's `playerSlots` (0 = primary position).
+    pub index: usize,
+    /// None while no champion is chosen for this slot.
+    pub champion_id: Option<u32>,
+    /// From `positionPreference` ("TOP", "JUNGLE", "MIDDLE", "BOTTOM",
+    /// "UTILITY"); None for "FILL" / "UNSELECTED".
+    pub role: Option<Role>,
+}
+
+/// The lobby before queueing, emitted to the UI as the `lobby` event while the
+/// client is in the Lobby / Matchmaking / ReadyCheck phases.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct LobbyState {
+    pub in_lobby: bool,
+    pub queue_id: Option<i64>,
+    pub queue: Option<Queue>,
+    /// Swiftplay / Quickplay: my champions per position (`slots`) are picked
+    /// here; there is no champ select. Empty for every other queue.
+    pub slots: Vec<LobbySlot>,
+}
+
 /// Emitted as the `lcu-status` event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct LcuStatus {
@@ -415,10 +455,18 @@ mod tests {
         assert_eq!(Queue::from_lcu_queue_id(450), Some(Queue::Aram));
         assert_eq!(Queue::from_lcu_queue_id(2400), Some(Queue::AramMayhem));
         assert_eq!(Queue::from_lcu_queue_id(700), Some(Queue::NormalDraft));
-        assert_eq!(Queue::from_lcu_queue_id(480), Some(Queue::NormalBlind));
+        assert_eq!(Queue::from_lcu_queue_id(400), Some(Queue::NormalDraft));
+        assert_eq!(Queue::from_lcu_queue_id(430), Some(Queue::NormalBlind));
+        for swift in [480, 481, 483, 490, 493] {
+            assert_eq!(Queue::from_lcu_queue_id(swift), Some(Queue::Swiftplay));
+        }
         assert_eq!(Queue::from_lcu_queue_id(2450), Some(Queue::AramMayhem));
         assert_eq!(Queue::from_lcu_queue_id(1700), None); // Arena
         assert_eq!(Queue::AramMayhem.ugg_queue(), "normal_aram");
+        assert_eq!(Queue::Swiftplay.ugg_queue(), "ranked_solo_5x5");
         assert!(Queue::AramMayhem.is_aram());
+        assert!(Queue::Swiftplay.is_lobby_pick() && !Queue::Swiftplay.is_aram());
+        assert!(!Queue::NormalDraft.is_lobby_pick() && !Queue::AramMayhem.is_lobby_pick());
+        assert_eq!(serde_json::to_string(&Queue::Swiftplay).unwrap(), "\"swiftplay\"");
     }
 }

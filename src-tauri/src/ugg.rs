@@ -9,6 +9,10 @@
 //! settings' region/rank has too little data we widen step by step:
 //! (region, rank) → (region, overall) → (world, rank) → (world, overall).
 //! `Build.rank` / `Build.region` always say which level was actually used.
+//!
+//! ARAM Mayhem = the normal ARAM build (exactly what u.gg's Mayhem page
+//! shows) + u.gg's per-champion augment ranking (`static.bigbrain.gg/
+//! custom-aram-mayhem/…`). See DESIGN.md "ARAM Mayhem".
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
@@ -27,6 +31,16 @@ const VERSIONS_URL: &str =
     "https://static.bigbrain.gg/assets/lol/riot_patch_update/prod/ugg/ugg-api-versions.json";
 /// Endpoint version used when the versions file doesn't list one.
 const DEFAULT_API_VERSION: &str = "1.5.0";
+/// u.gg's ARAM Mayhem files (augment rankings + names), keyed by u.gg patch.
+const MAYHEM_BASE: &str = "https://static.bigbrain.gg/custom-aram-mayhem";
+/// Augment icons: `{AUGMENT_ICON_BASE}/{patch}/augments/{id}.webp`.
+const AUGMENT_ICON_BASE: &str = "https://static.bigbrain.gg/cdragon-custom";
+/// u.gg augment rarity key → `AugmentOption.rarity`, in display order.
+const AUGMENT_RARITIES: [(&str, &str); 3] = [
+    ("kPrismatic", "prismatic"),
+    ("kGold", "gold"),
+    ("kSilver", "silver"),
+];
 
 const VERSIONS_TTL: Duration = Duration::from_secs(60 * 60);
 const STATS_TTL: Duration = Duration::from_secs(12 * 60 * 60);
@@ -57,6 +71,8 @@ pub const ITEM_OPTIONS_MAX: usize = 5;
 /// exempt) in addition to `settings.min_games` games. 0.5% keeps ~40–80
 /// champions per role at Emerald+ World.
 pub const TIER_MIN_PICK_RATE: f64 = 0.005;
+/// ARAM Mayhem augments kept per rarity (u.gg ranks ~30–50 of each).
+pub const AUGMENTS_PER_RARITY: usize = 10;
 
 /// u.gg region id of "world".
 pub const WORLD: u8 = 12;
@@ -212,6 +228,14 @@ struct RankingFile {
     roles: HashMap<String, Vec<RankingRow>>,
     /// Champion id → matches in which it was banned.
     bans: HashMap<u32, u32>,
+}
+
+/// u.gg's per-champion ARAM Mayhem augment ranking. Only an order — u.gg
+/// publishes no per-augment games/win rates.
+#[derive(Debug, Default)]
+struct AugmentRanking {
+    /// Rarity key ("kPrismatic", "kGold", "kSilver") → augment ids, best first.
+    rarities: HashMap<String, Vec<u32>>,
 }
 
 impl RankingFile {
@@ -547,9 +571,87 @@ fn parse_ranking(body: &[u8]) -> anyhow::Result<RankingFile> {
     })
 }
 
+/// `{"rarities": {"kPrismatic": [id…], "kGold": […], "kSilver": […]},
+/// "lastUpdated": "…"}`, ids best first.
+fn parse_augment_ranking(body: &[u8]) -> anyhow::Result<AugmentRanking> {
+    let v = json(body)?;
+    let rarities = v
+        .get("rarities")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("augment ranking has no \"rarities\""))?
+        .iter()
+        .map(|(rarity, list)| (rarity.clone(), ids(Some(list))))
+        .collect();
+    Ok(AugmentRanking { rarities })
+}
+
+/// Augment manifest `{"augmentId": "Name", …}` → id → name.
+fn parse_augment_names(body: &[u8]) -> anyhow::Result<HashMap<u32, String>> {
+    let v = json(body)?;
+    let obj = v.as_object().expect("checked by json()");
+    Ok(obj
+        .iter()
+        .filter_map(|(id, name)| {
+            let name = name.as_str()?.trim();
+            let id = id.trim().parse().ok()?;
+            (!name.is_empty()).then(|| (id, name.to_string()))
+        })
+        .collect())
+}
+
+fn augment_ranking_url(patch: &str, champion_id: u32) -> String {
+    format!(
+        "{MAYHEM_BASE}/{patch}/tierlist-per-champion-augments-rarity-{patch}/\
+         tierlist-augments-{champion_id}-{patch}.json"
+    )
+}
+
+fn augment_names_url(patch: &str) -> String {
+    format!("{MAYHEM_BASE}/{patch}/aram-mayhem-augment-manifest-{patch}.json")
+}
+
+fn augment_icon_url(patch: &str, id: u32) -> String {
+    format!("{AUGMENT_ICON_BASE}/{patch}/augments/{id}.webp")
+}
+
 // ---------------------------------------------------------------------------
 // Selection logic (pure)
 // ---------------------------------------------------------------------------
+
+/// Augments to show: prismatic, then gold, then silver, each in u.gg's
+/// order (best first), at most [`AUGMENTS_PER_RARITY`] per rarity. Ids
+/// without a name (not in the manifest) and repeats are skipped. `patch` is
+/// the ranking's patch (for icon URLs). Stats stay 0: u.gg has none.
+fn compute_augments(
+    ranking: &AugmentRanking,
+    names: &HashMap<u32, String>,
+    patch: &str,
+) -> Vec<AugmentOption> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for (key, rarity) in AUGMENT_RARITIES {
+        let Some(ids) = ranking.rarities.get(key) else {
+            continue;
+        };
+        out.extend(
+            ids.iter()
+                .filter_map(|&id| Some((id, names.get(&id)?)))
+                .filter(|&(id, _)| seen.insert(id))
+                .take(AUGMENTS_PER_RARITY)
+                .map(|(id, name)| AugmentOption {
+                    id,
+                    name: name.clone(),
+                    icon: augment_icon_url(patch, id),
+                    rarity: rarity.to_string(),
+                    description: String::new(),
+                    games: 0,
+                    win_rate: 0.0,
+                    pick_rate: 0.0,
+                }),
+        );
+    }
+    out
+}
 
 /// Levels to try, most specific first, without duplicates.
 fn levels(region: u8, rank: u8) -> Vec<Level> {
@@ -803,6 +905,7 @@ fn make_build(
         skill_order: e.skill_order.chars().map(String::from).collect(),
         skill_priority: e.skill_priority.clone(),
         available_roles,
+        augments: Vec::new(),
     }
 }
 
@@ -895,6 +998,31 @@ impl Ugg {
             .map(|(_, file)| file))
     }
 
+    /// ARAM Mayhem augments for `champion_id` (u.gg's ranking, see
+    /// [`compute_augments`]). Empty when u.gg has no ranking for it.
+    async fn mayhem_augments(&self, champion_id: u32) -> anyhow::Result<Vec<AugmentOption>> {
+        // These files have no endpoint version; the `ver` argument is unused.
+        let Some((patch, ranking)) = self
+            .stats_file(
+                "augments",
+                |patch, _| augment_ranking_url(patch, champion_id),
+                parse_augment_ranking,
+            )
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let (_, names) = self
+            .stats_file(
+                "augments",
+                |patch, _| augment_names_url(patch),
+                parse_augment_names,
+            )
+            .await?
+            .ok_or_else(|| anyhow!("u.gg augment manifest not found"))?;
+        Ok(compute_augments(&ranking, &names, &patch))
+    }
+
     /// Champion id → roles, most played first.
     pub async fn primary_roles(&self) -> anyhow::Result<HashMap<u32, Vec<Role>>> {
         let (_, roles) = self
@@ -914,6 +1042,9 @@ impl Ugg {
     ///
     /// A requested role with no data at all falls back to the most played
     /// role (`Build.role` says which role the build is for).
+    ///
+    /// ARAM Mayhem: the normal ARAM build (as on u.gg's Mayhem page) plus
+    /// `augments`; augments are best effort (a failure only leaves them empty).
     pub async fn build(
         &self,
         champion_id: u32,
@@ -934,16 +1065,15 @@ impl Ugg {
             let levels = levels(region, OVERALL);
             let (level, e) = pick_general(&general, &levels, ARAM_ROLE)
                 .ok_or_else(|| anyhow!("u.gg has no ARAM data for champion {champion_id}"))?;
-            return Ok(make_build(
-                champion_id,
-                None,
-                None,
-                queue,
-                &patch,
-                level,
-                e,
-                Vec::new(),
-            ));
+            let mut build =
+                make_build(champion_id, None, None, queue, &patch, level, e, Vec::new());
+            if queue == Queue::AramMayhem {
+                match self.mayhem_augments(champion_id).await {
+                    Ok(augments) => build.augments = augments,
+                    Err(e) => eprintln!("ugg: Mayhem augments for {champion_id}: {e:#}"),
+                }
+            }
+            return Ok(build);
         }
 
         let levels = levels(region, rank_id(&settings.rank));
@@ -1147,6 +1277,16 @@ mod tests {
             &ugg,
             &format!("{BASE}/champion_ranking/world/{p}/ranked_solo_5x5/emerald_plus/1.5.0.json"),
             "champion_ranking_world_emerald_plus.json",
+        );
+        seed(
+            &ugg,
+            &augment_ranking_url(p, YORICK),
+            "mayhem/tierlist-augments-83-16_19.json",
+        );
+        seed(
+            &ugg,
+            &augment_names_url(p),
+            "mayhem/aram-mayhem-augment-manifest-16_19.json",
         );
         (ugg, dir)
     }
@@ -1510,7 +1650,122 @@ mod tests {
         assert!(b.games > 0);
         assert_eq!(b.spells.ids, [4, 32]);
         assert!(b.available_roles.is_empty());
+        // Mayhem: same build as normal ARAM, plus augments.
+        assert_eq!(b.augments.len(), 3 * AUGMENTS_PER_RARITY);
+        assert_eq!(b.augments[0].id, 1361);
+        assert_eq!(b.augments[0].name, "Icathia's Fall");
+        assert_eq!(
+            b.augments[0].icon,
+            "https://static.bigbrain.gg/cdragon-custom/16_19/augments/1361.webp"
+        );
+
+        let aram = ugg
+            .build(YORICK, None, None, Queue::Aram, &s)
+            .await
+            .unwrap();
+        assert!(aram.augments.is_empty());
+        assert_eq!((aram.games, &aram.runes), (b.games, &b.runes));
+
+        // Builds serialized before `augments` existed still deserialize.
+        let mut v = serde_json::to_value(&aram).unwrap();
+        v.as_object_mut().unwrap().remove("augments");
+        assert_eq!(serde_json::from_value::<Build>(v).unwrap(), aram);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn augment_files_parse() {
+        let r = parse_augment_ranking(&fixture("mayhem/tierlist-augments-83-16_19.json")).unwrap();
+        let len = |k: &str| r.rarities[k].len();
+        assert_eq!(
+            (len("kPrismatic"), len("kGold"), len("kSilver")),
+            (46, 48, 29)
+        );
+        assert_eq!(r.rarities["kPrismatic"][..3], [1361, 1062, 2098]);
+        assert!(parse_augment_ranking(br#"{"tiers":{}}"#).is_err());
+        assert!(parse_augment_ranking(b"[]").is_err());
+
+        let names = parse_augment_names(&fixture("mayhem/aram-mayhem-augment-manifest-16_19.json"))
+            .unwrap();
+        assert_eq!(names.len(), 554);
+        assert_eq!(names[&1361], "Icathia's Fall");
+        assert_eq!(names[&1104], "Minionmancer");
+        // Every augment u.gg ranks for Yorick has a name.
+        assert!(r
+            .rarities
+            .values()
+            .flatten()
+            .all(|id| names.contains_key(id)));
+        let names = parse_augment_names(br#"{"7":" Deft ","x":"Bad","8":"","9":3}"#).unwrap();
+        assert_eq!(names, HashMap::from([(7, "Deft".to_string())]));
+    }
+
+    #[test]
+    fn augments_grouped_by_rarity_best_first() {
+        let r = parse_augment_ranking(&fixture("mayhem/tierlist-augments-83-16_19.json")).unwrap();
+        let names = parse_augment_names(&fixture("mayhem/aram-mayhem-augment-manifest-16_19.json"))
+            .unwrap();
+        let a = compute_augments(&r, &names, "16_19");
+        assert_eq!(a.len(), 3 * AUGMENTS_PER_RARITY);
+        let n = AUGMENTS_PER_RARITY;
+        for (i, rarity) in ["prismatic", "gold", "silver"].iter().enumerate() {
+            assert!(a[i * n..(i + 1) * n].iter().all(|x| x.rarity == *rarity));
+        }
+        assert_eq!((a[0].id, a[n].id, a[2 * n].id), (1361, 1403, 1028));
+        assert_eq!(
+            (a[n].name.as_str(), a[2 * n].name.as_str()),
+            ("Stats on Stats!", "Erosion")
+        );
+        assert!(a
+            .iter()
+            .all(|x| x.games == 0 && x.win_rate == 0.0 && x.description.is_empty()));
+
+        // Unknown ids, repeats and unknown rarities are skipped; order kept.
+        let r = parse_augment_ranking(
+            br#"{"rarities":{"kSilver":[5,9,5,6],"kGold":[6],"kOther":[7]}}"#,
+        )
+        .unwrap();
+        let names: HashMap<u32, String> = [(5, "Five"), (6, "Six"), (7, "Seven")]
+            .map(|(i, s)| (i, s.to_string()))
+            .into();
+        let a = compute_augments(&r, &names, "16_18");
+        let got: Vec<(u32, &str)> = a.iter().map(|x| (x.id, x.rarity.as_str())).collect();
+        assert_eq!(got, [(6, "gold"), (5, "silver")]);
+        assert_eq!(
+            a[1].icon,
+            format!("{AUGMENT_ICON_BASE}/16_18/augments/5.webp")
+        );
+    }
+
+    #[tokio::test]
+    async fn mayhem_augments_previous_patch_and_missing() {
+        let (ugg, dir) = seeded_ugg("ugg-mayhem");
+        let s = Settings::default();
+        // Ranking only on 16_18 (patch day) → used, icons point at 16_18;
+        // names still come from the newest manifest.
+        std::fs::rename(
+            ugg.http.path_for(&augment_ranking_url("16_19", YORICK)),
+            ugg.http.path_for(&augment_ranking_url("16_18", YORICK)),
+        )
+        .unwrap();
+        let b = ugg
+            .build(YORICK, None, None, Queue::AramMayhem, &s)
+            .await
+            .unwrap();
+        assert_eq!(b.augments[0].name, "Icathia's Fall");
+        assert!(b.augments[0].icon.contains("/16_18/"));
+        assert_eq!(b.patch, "16_19");
+
+        // No ranking at all → build without augments, not an error.
+        let (ugg, dir2) = seeded_ugg("ugg-mayhem-none");
+        std::fs::remove_file(ugg.http.path_for(&augment_ranking_url("16_19", YORICK))).unwrap();
+        let b = ugg
+            .build(YORICK, None, None, Queue::AramMayhem, &s)
+            .await
+            .unwrap();
+        assert!(b.augments.is_empty() && b.games > 0);
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(dir2);
     }
 
     #[tokio::test]
@@ -1735,6 +1990,43 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(again, b);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Live check of the ARAM Mayhem files: `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_yorick_mayhem_augments() {
+        let dir = temp_dir("ugg-live-mayhem");
+        let ugg = Ugg::new(dir.clone());
+        let b = ugg
+            .build(YORICK, None, None, Queue::AramMayhem, &Settings::default())
+            .await
+            .unwrap();
+        println!(
+            "Yorick Mayhem ({}): {} games, {} augments, top: {:?}",
+            b.patch,
+            b.games,
+            b.augments.len(),
+            b.augments
+                .iter()
+                .take(3)
+                .map(|a| &a.name)
+                .collect::<Vec<_>>()
+        );
+        assert!(b.games > 0 && b.runes.perks.len() == 6);
+        assert!(b.augments.len() >= 10);
+        for rarity in ["prismatic", "gold", "silver"] {
+            assert!(b.augments.iter().any(|a| a.rarity == rarity), "{rarity}");
+        }
+        assert!(b.augments.iter().all(|a| !a.name.is_empty()));
+        let icon = &b.augments[0].icon;
+        let client = reqwest::Client::builder()
+            .user_agent(crate::http_cache::USER_AGENT)
+            .build()
+            .unwrap();
+        let resp = client.get(icon).send().await.unwrap();
+        assert!(resp.status().is_success(), "{icon}: {}", resp.status());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

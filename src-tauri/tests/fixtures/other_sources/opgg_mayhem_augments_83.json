@@ -1,0 +1,76 @@
+{
+ "_source": "https://op.gg/lol/modes/aram-mayhem/yorick/augments (2026-10-02, patch 16.19, global). Not an API: the array is inside the Next.js RSC payload (self.__next_f.push chunks) of the HTML page. Trimmed to 6 of 192 entries.",
+ "data": [
+  {
+   "id": 1104,
+   "tier": 0,
+   "performance": 81.1,
+   "popular": 5.98,
+   "name": "Minionmancer",
+   "key": "ARAM_Minionmancer",
+   "largeIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/Minionmancer_large.png",
+   "smallIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/Minionmancer_small.png",
+   "rarity": 4,
+   "desc": "Your summons gain 40% increased size, health, and damage.",
+   "tooltip": "Your summons gain 40% increased size, health, and damage."
+  },
+  {
+   "id": 2073,
+   "tier": 0,
+   "performance": 76.68,
+   "popular": 3.62,
+   "name": "Siphon",
+   "key": "ARAM_SustainingStrike",
+   "largeIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/GenericAbilityAugmentIcon_Silver.png",
+   "smallIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/GenericAbilityAugmentIcon_Silver.png",
+   "rarity": 1,
+   "desc": "Damaging enemy champions with <font color='#F0C200'>?</font> <healing>heals</healing> you.",
+   "tooltip": "<healing>Heal</healing> for 30% of the damage dealt to enemy champions by <font color='#F0C200'>?</font>."
+  },
+  {
+   "id": 2006,
+   "tier": 0,
+   "performance": 78.71,
+   "popular": 3.52,
+   "name": "Dropkick",
+   "key": "ARAM_Dropkick",
+   "largeIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/Dropkick_large.png",
+   "smallIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/Dropkick_small.png",
+   "rarity": 8,
+   "desc": "Your Attacks and Abilities execute low Health enemy champions, Knocking Back and causing an explosion while healing you.",
+   "tooltip": "Your Attacks and Abilities execute enemy champions below <scaleHealth>? max Health</scaleHealth>, <healing>restoring ? Health</healing> and <status>Knocking Back</status> the target.<br><br>Upon colliding with an enemy or terrain or reaching their terminus, <status>Knocked Back</status> enemies will explode dealing <magicDamage>? magic damage</magicDamage> to nearby enemies.<br><br><rules>These explosions can chain.<br><br>Enemies Dropkicked: ?<br>Total Health Gained: ?<br>Damage Dealt: ?</rules>"
+  },
+  {
+   "id": 1353,
+   "tier": 0,
+   "performance": 83.14,
+   "popular": 3.3,
+   "name": "Tank Engine",
+   "key": "ARAM_TankEngine",
+   "largeIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/Tank_Engine_Large.png",
+   "smallIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/Tank_Engine_Small.png",
+   "rarity": 4,
+   "desc": "On takedown, gain a stack that increases your size and <scaleHealth>max Health</scaleHealth>. Lose stacks on death.",
+   "tooltip": "On takedown, gain a stack that grants 5% increased size and <scaleHealth>5% max Health</scaleHealth>. Lose 65% of stacks on death.<br><br>Total Health Gained: ?"
+  },
+  {
+   "id": 1181,
+   "tier": 0,
+   "performance": 81.76,
+   "popular": 3.14,
+   "name": "Heavy Hitter",
+   "key": "ARAM_HeavyHitter",
+   "largeIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/HeavyHitter_large.png",
+   "smallIcon": "https://opgg-static.akamaized.net/meta/images/lol/latest/aram-augment/HeavyHitter_small.png",
+   "rarity": 1,
+   "desc": "Your Attacks deal additional <physicalDamage>physical damage</physicalDamage> equal to 3.5% of your <scaleHealth>max Health. </scaleHealth>",
+   "tooltip": "Your Attacks deal additional <physicalDamage>? physical damage</physicalDamage>."
+  },
+  {
+   "id": 1082,
+   "tier": 5,
+   "performance": 71.58,
+   "popular": 0.01
+  }
+ ]
+}

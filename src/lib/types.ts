@@ -56,6 +56,23 @@ export interface Spells {
   win_rate: number;
 }
 
+/** One recommended ARAM Mayhem augment. */
+export interface AugmentOption {
+  id: number;
+  name: string;
+  /** Icon URL. */
+  icon: string;
+  /** "prismatic" | "gold" | "silver" */
+  rarity: string;
+  /** Plain text; empty when the source has none (u.gg has none). */
+  description: string;
+  /** Per-augment stats; all 0 when the source has none (u.gg only
+   * publishes a ranking) — hide them then. */
+  games: number;
+  win_rate: number;
+  pick_rate: number;
+}
+
 export interface Build {
   source: Source;
   champion_id: number;
@@ -78,6 +95,9 @@ export interface Build {
   skill_order: string[];
   skill_priority: string;
   available_roles: Role[];
+  /** ARAM Mayhem only (empty otherwise): prismatic, then gold, then silver;
+   * best first within each rarity. */
+  augments: AugmentOption[];
 }
 
 export interface MatchupStat {

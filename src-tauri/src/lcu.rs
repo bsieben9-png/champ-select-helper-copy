@@ -1524,6 +1524,7 @@ mod tests {
             skill_order: vec!["Q".into(), "E".into(), "W".into()],
             skill_priority: "QEW".into(),
             available_roles: vec![Top, Jungle],
+            augments: Vec::new(),
         }
     }
 

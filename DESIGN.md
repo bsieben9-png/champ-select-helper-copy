@@ -15,7 +15,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Stats | **Emerald+**, **World** by default; both changeable in Settings. |
 | Counters | Highest win rate vs the enemy in that role, ignoring matchups below a **minimum games** threshold. |
 | Jungle / Support | **Role vs role** (jungle vs enemy jungler, support vs enemy support). |
-| Modes | Ranked Solo/Duo, Normal Draft/Flex (use ranked solo data), ARAM. **ARAM Mayhem**: later (data source not located yet; fall back to ARAM). |
+| Modes | Ranked Solo/Duo, Normal Draft/Flex (use ranked solo data), ARAM. **ARAM Mayhem (with augments) is the only ARAM mode the owner cares about**; normal ARAM just has to keep working. |
 | Items | Full build (starting, core, 4th/5th/6th options, skill order) **plus** push an in-game **item set** to the client. |
 | Look | League-style dark: deep navy, gold accents, champion/rune/item icons. |
 | Extras | **My champion pool** (counters from your pool shown first/highlighted); **Manual lookup** mode (works with League closed). |
@@ -72,8 +72,10 @@ Missing files return **403** (treat as "no data").
 - **Primary roles**: `{base}/primary_roles/{patch}/{ver}.json` → `{ "champId": [roleId, ...] }` most-played first.
 
 Queues: `ranked_solo_5x5`, `ranked_flex_sr`, `normal_draft_5x5`, `normal_blind_5x5`,
-`normal_aram`, `aram_mayhem` (not available in this format yet).
-LCU queue ids: 420 solo, 440 flex, 400 draft, 430 blind, 450 ARAM, 2400 ARAM Mayhem, 490 quickplay.
+`normal_aram`. (`aram_mayhem` / `aram_mayhem_classic` exist in u.gg's code but have
+no stats2 files — see [ARAM Mayhem](#aram-mayhem).)
+LCU queue ids: 420 solo, 440 flex, 400 draft, 430 blind, 450 ARAM, 2400 ARAM Mayhem,
+2450 ARAM Mayhem "Classic", 490 quickplay.
 
 All stat files are nested `data[regionId][rankId][roleId]`, keys are strings.
 
@@ -102,6 +104,72 @@ champion's** wins vs that opponent. So a counter's win rate vs the enemy is
 `1 - wins/games` when reading the *enemy's* matchups file.
 
 Sample (Emerald+, World, top): Yorick vs Gwen = 327 wins / 602 games (54.3%).
+
+### ARAM Mayhem
+
+Found 2026-10-02 (patch 16_19) by loading `https://u.gg/lol/champions/aram-mayhem/yorick-aram-mayhem`
+in a browser: its `window.__SSR_DATA__` blob is keyed by the URLs the server fetched, and the
+JS (`static.bigbrain.gg/lol/static/js/main.*.js`, `components-Champions-Overview.*.js`) confirms it.
+
+**Build (runes, spells, items, skill order): the normal ARAM overview.** There is no Mayhem
+stats file — every `aram_mayhem` / `aram_mayhem_classic` variant on stats2 (`overview`,
+`ct-overview`, `builds`, `rankings`, `champion_ranking`, any patch) is 403. u.gg's Mayhem
+page hard-codes its build section to `{queue: normal_aram, region: world, rank: overall,
+role: none}`, i.e. `{base}/overview/{patch}/normal_aram/{champId}/{ver}.json` →
+`data["12"]["8"]["6"]`. OP.GG's Mayhem page also uses its plain ARAM data (`type: "aram"`).
+So `Queue::AramMayhem.ugg_queue()` is `normal_aram`. (u.gg's Mayhem page doesn't show
+runes; we import the normal ARAM runes from the same entry.)
+
+**Augments: static JSON on `https://static.bigbrain.gg/custom-aram-mayhem`** (`{m}` below).
+Plain GET with a browser `User-Agent`, no Cloudflare. Missing files are **404** (not 403).
+Keyed by the u.gg patch (`16_19`, same as `ugg-api-versions.json`; no version key of its own);
+the patch appears twice in the URL. 16_17–16_19 exist; 16_20 is 404 until u.gg publishes it.
+
+| File | URL | Format |
+|---|---|---|
+| Per-champion augment ranking | `{m}/{patch}/tierlist-per-champion-augments-rarity-{patch}/tierlist-augments-{champId}-{patch}.json` | `{"rarities": {"kPrismatic": [id…], "kGold": [id…], "kSilver": [id…]}, "lastUpdated": "2026-09-28T16:20:05+00:00"}` |
+| Augment names | `{m}/{patch}/aram-mayhem-augment-manifest-{patch}.json` | `{"1361": "Icathia's Fall", …}` — 554 entries, Arena augments included |
+| Champion tier list (unused) | `{m}/{patch}/tierlist-champions-{patch}.json` | `{"tiers": {"S+": [champId…], "S": […], "A", "B", "C", "D"}, "lastUpdated": …}` |
+| Augment icon | `https://static.bigbrain.gg/cdragon-custom/{patch}/augments/{id}.webp` | webp, served as `binary/octet-stream` (fine in `<img>`) |
+
+- The ranking is **only an order**: ids best first within each rarity. There are no games, win
+  rates, pick rates, tiers or descriptions anywhere in u.gg's Mayhem data. u.gg shows every id
+  in order, grouped by rarity, and its page text calls the first 3 prismatic ones "S+ picks".
+  Yorick 16_19: 46 prismatic, 48 gold, 29 silver; top 3 = Icathia's Fall, Omni Soul, En Passant.
+- Rarity keys `kPrismatic` / `kGold` / `kSilver` match CommunityDragon's `rarity` field.
+  Mayhem augment ids are 1001–2999 plus a few 12xxx (e.g. 12317 Pandora's Box); they share
+  an id space with Arena augments (Riot's `cherry-augments`).
+- What the app does (`ugg.rs`): `Build.augments` = up to 10 per rarity, prismatic → gold →
+  silver, in u.gg's order; ids missing from the manifest are skipped; `description` is empty
+  and `games`/`win_rate`/`pick_rate` are 0 (the UI should hide them). The ranking is tried on the
+  newest patch, then the previous one (patch day); icon URLs use the ranking's patch. If the
+  augment files fail, the build is still returned without augments.
+- Queue ids: u.gg's code has `ARAM_MAYHEM = 2400` (`aram_mayhem`) and `ARAM_MAYHEM_CLASSIC = 2450`
+  (`aram_mayhem_classic`; OP.GG calls it "ARAM: Mayhem Classic-ish"). No site has separate data
+  for 2450, so both map to `Queue::AramMayhem`.
+- Fixtures: `src-tauri/tests/fixtures/mayhem/` (Yorick ranking, manifest, champion tier list —
+  all real 16_19 files).
+
+**Other sources checked** (for the augment stats/descriptions u.gg lacks):
+- **OP.GG** `https://op.gg/lol/modes/aram-mayhem/{champ}/augments`: plain curl works (no bot wall),
+  but the data is only inside the Next.js RSC payload of the ~800 KB HTML (`self.__next_f.push`
+  chunks): `{"data": [{"id": 1104, "tier": 0, "performance": 81.1, "popular": 5.98, "name":
+  "Minionmancer", "key": "ARAM_Minionmancer", "largeIcon", "smallIcon", "rarity": 4, "desc",
+  "tooltip"}, …]}` (192 for Yorick). `popular` = pick share in % (sums to 100), `performance` =
+  opaque score (75–85), `tier` 0–5, `rarity` 1 silver / 4 gold / 8 prismatic, `desc` has Riot
+  markup and `?` placeholders; some entries have only id/tier/performance/popular. No games or
+  win rate. Sample: `tests/fixtures/other_sources/opgg_mayhem_augments_83.json`. Its JSON API
+  doesn't serve Mayhem: `lol-api-champion.op.gg/api/global/champions/aram/{id}/none` is plain
+  ARAM, `/api/global/champions/{mode}/{id}/augments` returns **Arena** augments (with
+  `first_place`/`total_place`) for any mode, `aram_mayhem` → "Mode was invalid",
+  `aram_mayhem_classic` → valid but empty.
+- **CommunityDragon** `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/cherry-augments.json`:
+  every Mayhem augment (`augmentNameId: "ARAM_…"`, `nameTRA`, `rarity`, `augmentSmallIconPath`);
+  no descriptions, no stats.
+- **Lolalytics**: no Mayhem pages (404). **Mobalytics**, **METAsrc**: bot wall (403).
+
+Tip: to find new u.gg data URLs, load a u.gg page in a real browser (u.gg itself is behind
+Cloudflare; `stats2.u.gg` and `static.bigbrain.gg` are not) and grep `window.__SSR_DATA__` for `https://`.
 
 ## Riot static data (Data Dragon, official)
 

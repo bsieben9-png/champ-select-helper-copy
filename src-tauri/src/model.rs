@@ -66,6 +66,8 @@ pub enum Queue {
 
 impl Queue {
     /// Map a League client queue id to a stats queue. Unknown queues → None.
+    /// 2400 = ARAM Mayhem, 2450 = "ARAM Mayhem Classic" (u.gg's names; it
+    /// has no separate data anywhere, so it is treated as Mayhem).
     pub fn from_lcu_queue_id(id: i64) -> Option<Queue> {
         match id {
             420 => Some(Queue::RankedSolo),
@@ -73,13 +75,16 @@ impl Queue {
             400 => Some(Queue::NormalDraft),
             430 | 490 => Some(Queue::NormalBlind),
             450 => Some(Queue::Aram),
-            2400 => Some(Queue::AramMayhem),
+            2400 | 2450 => Some(Queue::AramMayhem),
             _ => None,
         }
     }
 
-    /// Queue name u.gg should be asked for. Normals use ranked solo data
-    /// (bigger sample, has matchup builds); ARAM Mayhem falls back to ARAM.
+    /// Queue name of u.gg's build/tier-list files. Normals use ranked solo
+    /// data (bigger sample, has matchup builds). ARAM Mayhem uses the normal
+    /// ARAM build file — that is exactly what u.gg's own Mayhem page shows
+    /// (there is no `aram_mayhem` stats file); its augments come from
+    /// separate files (see DESIGN.md "ARAM Mayhem").
     pub fn ugg_queue(self) -> &'static str {
         match self {
             Queue::RankedSolo | Queue::NormalDraft | Queue::NormalBlind => "ranked_solo_5x5",
@@ -173,6 +178,24 @@ pub struct Spells {
     pub win_rate: f64,
 }
 
+/// One recommended ARAM Mayhem augment.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AugmentOption {
+    pub id: u32,
+    pub name: String,
+    /// Icon URL.
+    pub icon: String,
+    /// "prismatic", "gold" or "silver".
+    pub rarity: String,
+    /// Plain text; empty when the source has none (u.gg has none).
+    pub description: String,
+    /// Per-augment stats; all 0 when the source has none (u.gg only
+    /// publishes a ranking) — the UI should hide them then.
+    pub games: u32,
+    pub win_rate: f64,
+    pub pick_rate: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Build {
     /// Where the stats came from.
@@ -206,6 +229,10 @@ pub struct Build {
     pub skill_priority: String,
     /// Roles u.gg has data for, most played first.
     pub available_roles: Vec<Role>,
+    /// ARAM Mayhem only (empty otherwise): grouped by rarity — prismatic,
+    /// then gold, then silver — best first within each group.
+    #[serde(default)]
+    pub augments: Vec<AugmentOption>,
 }
 
 /// How `champion_id` does against one opponent.
@@ -373,4 +400,19 @@ pub struct AutoImportEvent {
     pub champion_id: u32,
     pub opponent_id: Option<u32>,
     pub result: ImportResult,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lcu_queue_ids() {
+        assert_eq!(Queue::from_lcu_queue_id(450), Some(Queue::Aram));
+        assert_eq!(Queue::from_lcu_queue_id(2400), Some(Queue::AramMayhem));
+        assert_eq!(Queue::from_lcu_queue_id(2450), Some(Queue::AramMayhem));
+        assert_eq!(Queue::from_lcu_queue_id(1700), None); // Arena
+        assert_eq!(Queue::AramMayhem.ugg_queue(), "normal_aram");
+        assert!(Queue::AramMayhem.is_aram());
+    }
 }

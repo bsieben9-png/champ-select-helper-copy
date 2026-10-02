@@ -131,6 +131,8 @@ async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
 
 #[tauri::command]
 async fn save_settings(state: State<'_, AppState>, new_settings: Settings) -> CmdResult<()> {
+    // Never trust the UI blindly: unknown keys → defaults, bounded pool.
+    let new_settings = settings::sanitize(new_settings);
     settings::save(&state.settings_path, &new_settings).map_err(err)?;
     *state.settings.write().await = new_settings;
     Ok(())
@@ -154,6 +156,7 @@ async fn import_build(
     build: Build,
     overwrite_page_id: Option<u64>,
 ) -> CmdResult<ImportResult> {
+    lcu::check_build_for_import(&build).map_err(err)?;
     let settings = state.settings.read().await.clone();
     let static_data = state.static_data().await.ok();
     // Clone the client so the lock isn't held during the import.

@@ -965,6 +965,35 @@ fn role_label(role: Option<Role>, queue: Queue) -> &'static str {
     }
 }
 
+/// A build handed in by the UI (`import_build` command) must look like one
+/// the app made before anything is written to the client: ids in range,
+/// lists no longer than a real build's. (Incomplete rune pages are reported
+/// by the import itself.)
+pub fn check_build_for_import(build: &Build) -> anyhow::Result<()> {
+    const ID_MAX: u32 = 99_999; // champions, rune styles, perks
+    const ITEM_ID_MAX: u32 = 9_999_999;
+    let ids_ok = |ids: &[u32], max_len: usize, max_id: u32| {
+        ids.len() <= max_len && ids.iter().all(|&id| id <= max_id)
+    };
+    let options_ok = |opts: &[ItemOption]| opts.len() <= 20 && opts.iter().all(|o| o.item_id <= ITEM_ID_MAX);
+    let r = &build.runes;
+    let ok = (1..=ID_MAX).contains(&build.champion_id)
+        && build.opponent_id.is_none_or(|id| (1..=ID_MAX).contains(&id))
+        && r.primary_style <= ID_MAX
+        && r.sub_style <= ID_MAX
+        && ids_ok(&r.perks, 6, ID_MAX)
+        && ids_ok(&r.shards, 3, ID_MAX)
+        && ids_ok(&build.starting_items.items, 12, ITEM_ID_MAX)
+        && ids_ok(&build.core_items.items, 12, ITEM_ID_MAX)
+        && options_ok(&build.fourth_items)
+        && options_ok(&build.fifth_items)
+        && options_ok(&build.sixth_items);
+    if !ok {
+        bail!("not a valid build");
+    }
+    Ok(())
+}
+
 /// "CSH: Yorick vs Gwen" (matchup build) or "CSH: Yorick Top".
 fn build_title(build: &Build, static_data: Option<&StaticData>) -> String {
     let champ = champion_name(static_data, build.champion_id);
@@ -1608,6 +1637,33 @@ pub(crate) mod tests {
             skill_priority: "QEW".into(),
             available_roles: vec![Top, Jungle],
             augments: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn builds_from_the_ui_are_checked() {
+        assert!(check_build_for_import(&sample_build()).is_ok());
+        let bad: [fn(&mut Build); 6] = [
+            |b| b.champion_id = 0,
+            |b| b.opponent_id = Some(u32::MAX),
+            |b| b.runes.perks = vec![8010; 7],
+            |b| b.starting_items.items = vec![1055; 1000],
+            |b| b.core_items.items = vec![u32::MAX],
+            |b| {
+                b.fourth_items = vec![
+                    ItemOption {
+                        item_id: 3078,
+                        games: 1,
+                        win_rate: 0.5,
+                    };
+                    21
+                ]
+            },
+        ];
+        for (i, change) in bad.iter().enumerate() {
+            let mut build = sample_build();
+            change(&mut build);
+            assert!(check_build_for_import(&build).is_err(), "case {i}");
         }
     }
 

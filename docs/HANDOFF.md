@@ -1,6 +1,6 @@
 # Hand-off: where the work stands
 
-Last updated: 2026-10-01 7:45 PM MT (cloud session).
+Last updated: 2026-10-02 1:30 AM MT (cloud session). Current release: v0.1.1 (portable .exe).
 
 ## Done (merged on `main`)
 - Design (`DESIGN.md`), shared contract (`model.rs` / `types.ts`), Tauri + Svelte skeleton
@@ -45,10 +45,24 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
   The bug it found (one error reply from League after lock-in caused a second import) is FIXED:
   the import memory is only forgotten after 3 polls in a row outside champ select. 90 tests pass.
 
-- **In progress (cloud, started ~8:35 PM MT):** `wip/watcher` (champ select never stalls on a slow
-  u.gg, roles reload after a patch, no re-import after an app restart) and `wip/augments` (Mayhem
-  augment descriptions + pick rate/tier from CommunityDragon/OP.GG). If not merged on main, finish
-  them from those branches.
+- **OWNER PRIORITY (8:45 PM MT): the app working properly > new features. Modes that matter:
+  Ranked, Normals (Quickplay/Swiftplay/Draft), ARAM Mayhem.** Lolalytics + augment descriptions are
+  PAUSED (not wanted now).
+- **In progress (cloud):** `wip/watcher` (champ select never stalls on a slow u.gg, roles reload
+  after a patch, no re-import after an app restart) and `wip/modes` (end-to-end correctness for
+  Ranked / Normals incl. Quickplay's lobby champion picks / ARAM Mayhem bench+rerolls; per-mode
+  manual checklist in docs/TESTING.md) and `wip/efficiency` (measure + cut memory/CPU/startup/IPC/
+  network/exe size; owner wants it as lightweight as possible) and `wip/security` (security review +
+  anything that looks suspicious to antivirus/SmartScreen; `docs/SECURITY.md`). If not merged on main, finish them
+  from those branches.
+
+- **OWNER PRIORITIES (2026-10-02): #1 Riot/Vanguard/League compliance (don't get banned), #2 app
+  security (incl. antivirus/SmartScreen), then reliability/modes, then efficiency.**
+  DONE: League is found via its lockfile only (commit 3230aec): no process list, handles, command
+  line or memory reads; sysinfo removed. Released as v0.1.1.
+  RUNNING (cloud): `wip/compliance` (Riot policy audit → docs/COMPLIANCE.md, then security →
+  docs/SECURITY.md), `wip/watcher`, `wip/modes` (resumed after the usage cap). PAUSED: `wip/efficiency`.
+  Work-saving: one or few agents at a time, commit every step, 2-minute snapshots to wip/*.
 
 ## Next steps after that
 1. Merge the review/test results (branches `wip/review`, `wip/tests` if not on main yet). Optional: fill augment descriptions/pick rates from OP.GG's Mayhem page (sample in `src-tauri/tests/fixtures/other_sources/opgg_mayhem_augments_83.json`).

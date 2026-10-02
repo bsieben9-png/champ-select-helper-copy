@@ -101,26 +101,10 @@ jobs:
       - name: Install npm packages
         run: npm ci
 
-      # Compiles the app (release mode) and makes the NSIS "-setup.exe"
-      # installer. This is the one that must succeed.
-      - name: Build app + setup.exe installer
-        run: npx tauri build --ci --bundles nsis
-
-      # The .msi (WiX) is a nice-to-have: if WiX ever breaks on GitHub's
-      # Windows image, we still get the setup.exe and the portable .exe.
-      - name: Build .msi installer (optional)
-        continue-on-error: true
-        run: npx tauri bundle --ci --bundles msi
-
-      - name: Upload installers
-        uses: actions/upload-artifact@v7
-        with:
-          name: champ-select-helper-windows
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: error
-          retention-days: 14
+      # Portable app only (owner doesn't want installers): compile the
+      # release .exe without bundling.
+      - name: Build portable app
+        run: npx tauri build --ci --no-bundle
 
       # The bare program, no installer: download and double-click.
       # (Needs Microsoft Edge WebView2, which Windows 10/11 already have.)

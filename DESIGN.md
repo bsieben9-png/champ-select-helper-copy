@@ -12,6 +12,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Tech | **Tauri 2** (Rust backend + Svelte 5/TypeScript UI). Target: Windows 10/11 (WebView2). |
 | Import into client | **Auto-import** (toggle on/off in settings) **and** a manual **Import** button. |
 | Window | Normal window. |
+| Distribution | **Portable `.exe` only**, no installers (GitHub Release + CI artifact). |
 | Stats | **Emerald+**, **World** by default; both changeable in Settings. |
 | Counters | Highest win rate vs the enemy in that role, ignoring matchups below a **minimum games** threshold. |
 | Jungle / Support | **Role vs role** (jungle vs enemy jungler, support vs enemy support). |
@@ -23,6 +24,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Import timing | Auto-import (on/off toggle) runs **exactly once, at the moment you lock in**, using the lane opponent known then. It never re-imports automatically, so your own edits after lock-in are safe. Manual **Import** button any time (the UI suggests it if the lane opponent appears later). |
 | Blind / first pick | Show the **tier list for my role** until the lane opponent is visible. |
 | Summoner spells | **Recommendation only.** The app never changes your spells (Flash on D vs F is personal). |
+| Priority | **Working properly over new features.** Modes that matter: **Ranked, Normals, ARAM Mayhem**. |
 | Data sources | u.gg now. Later: a **source dropdown** (Lolalytics first). A "Consensus" entry may come after that. Builds carry a `source` field. |
 
 Tier list: `{base}/champion_ranking/{regionKey}/{patch}/{queue}/{rankKey}/{ver}.json`. Note this one uses

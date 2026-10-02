@@ -36,6 +36,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
           tag="v${version}"
@@ -51,13 +52,18 @@ jobs:
               exit 1
             fi
             if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
-              echo "::error::Tag ${tag} already exists. Bump the version in package.json, src-tauri/Cargo.toml and src-tauri/tauri.conf.json first."
-              exit 1
+              if gh release view "$tag" >/dev/null 2>&1; then
+                echo "::error::Release ${tag} already exists. Bump the version in package.json, src-tauri/Cargo.toml and src-tauri/tauri.conf.json first."
+                exit 1
+              fi
+              # Leftover tag from a cancelled/failed run (no release): move it to this commit.
+              echo "Tag ${tag} exists without a release: moving it to $(git rev-parse --short HEAD)."
+              git tag -f "$tag"
+              git push -f origin "refs/tags/${tag}"
+            else
+              git tag "$tag"
+              git push origin "refs/tags/${tag}"
             fi
-            # Create the tag here (not via the release) so publishing the
-            # draft later doesn't start this workflow a second time.
-            git tag "$tag"
-            git push origin "refs/tags/${tag}"
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
@@ -75,24 +81,23 @@ jobs:
       - name: Install npm packages
         run: npm ci
 
-      - name: Build installers and create draft release
-        uses: tauri-apps/tauri-action@v1
+      # Portable app only (owner doesn't want installers).
+      - name: Build portable app
+        run: npx tauri build --ci --no-bundle
+
+      - name: Publish release with the portable .exe
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ steps.version.outputs.tag }}
-          releaseName: Champ Select Helper ${{ steps.version.outputs.tag }}
-          releaseBody: |
-            **Which file?**
-            - the file ending in **`_x64-setup.exe`**: the installer (recommended)
-            - the **`.msi`**: the same app as a Windows Installer package
-            - the other **`.exe`**: portable version, no install needed, just run it
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          exe="ChampSelectHelper-${TAG}-portable.exe"
+          cp src-tauri/target/release/champ-select-helper.exe "$exe"
+          cat > notes.md <<'NOTES'
+          **Download `ChampSelectHelper-…-portable.exe` below and double-click it.** No install needed.
 
-            Windows may show "Windows protected your PC" because the app isn't code-signed:
-            click **More info** -> **Run anyway**.
+          Windows may show "Windows protected your PC" because the app isn't code-signed:
+          click **More info** -> **Run anyway**. Needs Microsoft Edge WebView2 (already on Windows 10/11).
 
-            Champ Select Helper isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
-          releaseDraft: true
-          prerelease: false
-          uploadPlainBinary: true
-          uploadUpdaterJson: false
+          Champ Select Helper isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+          NOTES
+          gh release create "$TAG" "$exe" --title "Champ Select Helper ${TAG}" --notes-file notes.md --latest

@@ -55,10 +55,10 @@ on another machine (PC ⇄ cloud).
 - [ ] League client connection + import + auto-import (`lcu.rs`, `watcher.rs`)
 - [ ] UI (`src/`)
 - [x] Windows CI build + README + cloud session hook (`.github/workflows/`, `.claude/hooks/`)
-- [ ] ARAM Mayhem data (u.gg has it, file location not found yet — page is server-rendered).
-      Leads: u.gg queue key `aram_mayhem` (LCU queue 2400) / `aram_mayhem_classic` (2450);
-      `overview/{patch}/aram_mayhem/...` returns 403. u.gg JS (`static.bigbrain.gg/lol/static/js/*.js`)
-      mentions `champion_overview_aram_mayhem`, `aram-mayhem-augment-manifest-{patch}.json`,
-      augment icons `static.bigbrain.gg/cdragon-custom/{patch}/augments/{id}.webp`. Next step: load
-      `https://u.gg/lol/champions/aram-mayhem/yorick-aram-mayhem` in a real browser and search the
-      server-rendered HTML for the stats URL. Until then ARAM Mayhem falls back to normal ARAM data.
+- [x] ARAM Mayhem data (2026-10-02): build = u.gg's normal ARAM
+      overview (exactly what u.gg's Mayhem page shows; there is no Mayhem stats file) +
+      `Build.augments` from u.gg's per-champion augment ranking on
+      `static.bigbrain.gg/custom-aram-mayhem/…`. LCU 2400 + 2450 → `Queue::AramMayhem`.
+      u.gg has **no per-augment stats or descriptions** (only an order), so those fields are 0/empty
+      and the UI hides the stat columns. Details + other sources checked: DESIGN.md "ARAM Mayhem".
+      Possible follow-up: OP.GG's Mayhem augments page has pick share + descriptions (HTML scrape).

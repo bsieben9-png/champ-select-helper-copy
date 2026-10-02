@@ -17,12 +17,16 @@
   const filtered = $derived(filter === "all" ? augments : augments.filter((a) => rarityOf(a.rarity) === filter));
   const shown = $derived(expanded ? filtered : filtered.slice(0, TOP));
   const pr = (x: number) => `${(x * 100).toFixed(1)}%`;
+  // u.gg only publishes a ranking (stats all 0): hide the stat columns then.
+  const hasStats = $derived(augments.some((a) => a.games > 0));
 </script>
 
 <div class="augments">
   <div class="head">
     <span class="eyebrow">Augments</span>
-    <span class="faint sub">picked in-game · win rate · pick rate · games</span>
+    <span class="faint sub">
+      {hasStats ? "picked in-game · win rate · pick rate · games" : "picked in-game · u.gg ranking, best first"}
+    </span>
     <span class="spacer"></span>
     {#if present.length > 1}
       <Segmented
@@ -47,19 +51,22 @@
       {@const r = rarityOf(a.rarity)}
       <div
         class="row {r}"
+        class:nostats={!hasStats}
         role="listitem"
         use:tip={{
           title: a.name,
-          meta: `${RARITY_LABEL[r]} · ${pct(a.win_rate)} win rate · ${num(a.games)} games`,
+          meta: hasStats ? `${RARITY_LABEL[r]} · ${pct(a.win_rate)} win rate · ${num(a.games)} games` : RARITY_LABEL[r],
           body: a.description,
         }}
       >
         <span class="rank num">{augments.indexOf(a) + 1}</span>
         <AugmentIcon name={a.name} icon={a.icon} rarity={a.rarity} size={30} />
         <span class="name">{a.name}</span>
-        <span class="wr num {wrTone(a.win_rate)}" class:low={a.games < LOW_SAMPLE}>{pct(a.win_rate)}</span>
-        <span class="pick num" title="Pick rate">{pr(a.pick_rate)}</span>
-        <span class="games num" class:lowg={a.games < LOW_SAMPLE}>{fmtGames(a.games)}</span>
+        {#if hasStats}
+          <span class="wr num {wrTone(a.win_rate)}" class:low={a.games < LOW_SAMPLE}>{pct(a.win_rate)}</span>
+          <span class="pick num" title="Pick rate">{pr(a.pick_rate)}</span>
+          <span class="games num" class:lowg={a.games < LOW_SAMPLE}>{fmtGames(a.games)}</span>
+        {/if}
       </div>
     {:else}
       <div class="none faint">No augments of this rarity.</div>
@@ -121,6 +128,9 @@
     border-left: 2px solid var(--rc, var(--gold-dim));
     font-size: 12px;
     outline: none;
+  }
+  .row.nostats {
+    grid-template-columns: 16px 30px minmax(0, 1fr);
   }
   .row:hover,
   .row:focus-visible {

@@ -2036,7 +2036,7 @@ pub(crate) mod tests {
     fn runes_only() -> Settings {
         Settings {
             import_item_set: false,
-            ..Settings::default()
+            ..Settings::auto_on()
         }
     }
 
@@ -2046,7 +2046,7 @@ pub(crate) mod tests {
             mock_client(|m| m.session = Some(fixture("champ_select_ranked.json"))).await;
         let sd = static_data();
         let result = client
-            .import_build(&sample_build(), &Settings::default(), Some(&sd), None)
+            .import_build(&sample_build(), &Settings::auto_on(), Some(&sd), None)
             .await;
         assert!(result.runes && result.item_set, "{result:?}");
         assert_eq!(result.needs_confirmation, None);
@@ -2108,7 +2108,7 @@ pub(crate) mod tests {
             let (mock, client) = mock_client(|m| m.item_sets = answer.clone()).await;
             let settings = Settings {
                 import_runes: false,
-                ..Settings::default()
+                ..Settings::auto_on()
             };
             let result = client
                 .import_build(&sample_build(), &settings, None, None)
@@ -2128,7 +2128,7 @@ pub(crate) mod tests {
         let settings = Settings {
             import_runes: false,
             import_item_set: false,
-            ..Settings::default()
+            ..Settings::auto_on()
         };
         let result = client
             .import_build(&sample_build(), &settings, None, None)
@@ -2316,7 +2316,7 @@ pub(crate) mod tests {
         assert!(client.status().await.is_err());
         assert!(client.champ_select(&roles()).await.is_err());
         let result = client
-            .import_build(&sample_build(), &Settings::default(), None, None)
+            .import_build(&sample_build(), &Settings::auto_on(), None, None)
             .await;
         assert!(!result.runes && !result.item_set);
         assert_eq!(result.messages.len(), 2);

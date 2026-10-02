@@ -21,7 +21,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Look | League-style dark: deep navy, gold accents, champion/rune/item icons. |
 | Extras | **My champion pool** (counters from your pool shown first/highlighted); **Manual lookup** mode (works with League closed). |
 | Rune pages full | **Ask first**: never overwrite a user page silently. The app's own `CSH:` pages are reused freely. |
-| Import timing | Auto-import (on/off toggle) runs **exactly once, at the moment you lock in**, using the lane opponent known then. It never re-imports automatically, so your own edits after lock-in are safe. Manual **Import** button any time (the UI suggests it if the lane opponent appears later). |
+| Import timing | Auto-import is **OFF by default** (owner decision, most cautious under Riot's "don't automate player decisions" rule). When turned on in Settings, it makes **exactly one attempt, at the moment you lock in** (never retried, never re-imports), using the lane opponent known then. Manual **Import** button any time. |
 | Blind / first pick | Show the **tier list for my role** until the lane opponent is visible. |
 | Summoner spells | **Recommendation only.** The app never changes your spells (Flash on D vs F is personal). |
 | Priority | **Working properly over new features.** Modes that matter: **Ranked, Normals, ARAM Mayhem**. |

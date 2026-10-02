@@ -26,6 +26,9 @@ const LEE_SIN: u32 = 64;
 const JINX: u32 = 222;
 const ASHE: u32 = 22;
 
+/// Polls outside champ select after which the watcher counts it as left.
+const LEAVE_POLLS: usize = 3;
+
 const UGG: &str = "https://stats2.u.gg/lol/1.5";
 const UGG_VERSIONS: &str =
     "https://static.bigbrain.gg/assets/lol/riot_patch_update/prod/ugg/ugg-api-versions.json";
@@ -96,8 +99,9 @@ fn offline_sources(name: &str) -> (ugg::Ugg, ddragon::DDragon, PathBuf) {
     )
 }
 
-/// The app (mock Tauri runtime + real `AppState`), the real watcher, and a
-/// fake League client the watcher is already connected to.
+/// The app (mock Tauri runtime + real `AppState`), the real watcher (with
+/// its "already imported" marker file), and a fake League client the watcher
+/// is already connected to.
 struct Harness {
     app: tauri::App<MockRuntime>,
     watcher: Watcher,
@@ -147,7 +151,7 @@ impl Harness {
         }
         Harness {
             app,
-            watcher: Watcher::default(),
+            watcher: Watcher::new(dir.join("last_import.json")),
             fake,
             events,
             dir,
@@ -158,8 +162,39 @@ impl Harness {
         self.app.state::<AppState>()
     }
 
+    fn ugg(&self) -> &ugg::Ugg {
+        &self.state().inner().ugg
+    }
+
+    fn marker(&self) -> PathBuf {
+        self.dir.join("last_import.json")
+    }
+
+    /// The app is closed and started again: a new watcher (same marker file).
+    fn restart_app(&mut self) {
+        self.watcher = Watcher::new(self.marker());
+    }
+
+    /// One poll of the background loop, plus the background work it started
+    /// (u.gg answering, the import) — in the app that's well under a second.
     async fn tick(&mut self) -> Duration {
-        self.watcher.tick(self.app.handle()).await
+        let delay = self.poll().await;
+        self.settle().await;
+        delay
+    }
+
+    /// Only the poll itself: it must never wait for u.gg.
+    async fn poll(&mut self) -> Duration {
+        tokio::time::timeout(Duration::from_secs(5), self.watcher.tick(self.app.handle()))
+            .await
+            .expect("the poll waited for something slow (u.gg?)")
+    }
+
+    /// Wait for the background work (roles, the import) to finish.
+    async fn settle(&mut self) {
+        tokio::time::timeout(Duration::from_secs(20), self.watcher.settle())
+            .await
+            .expect("background work didn't finish");
     }
 
     async fn ticks(&mut self, n: usize) {
@@ -860,14 +895,16 @@ async fn client_disappearing_mid_select_disconnects_cleanly() {
 #[tokio::test]
 async fn client_crashing_during_the_import_does_not_panic() {
     let mut h = Harness::new("e2e-crash", Settings::default(), |_| {}).await;
-    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK)));
+    let draft = Draft::ranked().hover(YORICK);
+    h.client_shows("ChampSelect", Some(&draft));
     h.ticks(2).await;
     {
         let mut st = h.fake.state();
-        st.session = Some(Draft::ranked().hover(YORICK).lock().session());
-        // gameflow-phase, session, gameflow session, GET pages, DELETE old
-        // page — then the client dies (the POST gets no answer).
-        st.crash_after = Some(5);
+        st.session = Some(draft.lock().session());
+        // gameflow-phase, session, gameflow session, (build ready) session
+        // check, GET pages, DELETE old page — then the client dies (the POST
+        // gets no answer).
+        st.crash_after = Some(6);
     }
     h.tick().await;
     let imports = h.auto_imports();
@@ -898,13 +935,26 @@ async fn client_restarted_with_new_credentials_disconnects() {
 /// Lock in, get the auto-import, then the user edits the imported page.
 /// Returns the page id and the edited perks.
 async fn locked_in_and_edited(h: &mut Harness) -> (u64, Value) {
-    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    let draft = Draft::ranked().hover(YORICK).lock();
+    locked_in_and_edited_in(h, &draft).await
+}
+
+async fn locked_in_and_edited_in(h: &mut Harness, draft: &Draft) -> (u64, Value) {
+    h.client_shows("ChampSelect", Some(draft));
     h.ticks(2).await;
     assert_eq!(h.auto_imports().len(), 1);
     let our_page = h.fake.state().our_pages()[0]["id"].as_u64().unwrap();
     let edited = json!([8437, 8463, 8444, 8451, 9111, 9105, 5008, 5001, 5011]);
     h.fake.state().user_edits_page(our_page, edited.clone());
     (our_page, edited)
+}
+
+/// The perks of rune page `id` in the fake client.
+fn perks(h: &Harness, id: u64) -> Option<Value> {
+    h.fake
+        .state()
+        .page(id)
+        .map(|p| p["selectedPerkIds"].clone())
 }
 
 /// After lock-in one poll dies at the transport level (the busy client times
@@ -934,10 +984,9 @@ async fn transport_error_after_lock_in_does_not_reimport() {
 
 /// Same, but the busy client *answers* one poll with an error: a 503 from
 /// the phase endpoint (read as phase "None") or a 404 for the champ select
-/// session. Either is taken as "left champ select", the import memory is
-/// dropped and the next poll imports AGAIN, overwriting the user's edits,
-/// against the owner's rule "auto-import runs exactly once ... your own edits
-/// after lock-in are safe".
+/// session. Neither means "left champ select": no second import over the
+/// user's edits (owner: "auto-import runs exactly once ... your own edits
+/// after lock-in are safe").
 #[tokio::test]
 async fn error_answer_after_lock_in_does_not_reimport() {
     for (path, status) in [
@@ -946,6 +995,7 @@ async fn error_answer_after_lock_in_does_not_reimport() {
     ] {
         let mut h = Harness::new("e2e-blip-answer", Settings::default(), |_| {}).await;
         let (our_page, edited) = locked_in_and_edited(&mut h).await;
+        let events_before = h.events("champ-select").len();
         h.fake.state().fail_once.insert(path.into(), status);
         h.ticks(4).await;
         assert_eq!(
@@ -954,14 +1004,379 @@ async fn error_answer_after_lock_in_does_not_reimport() {
             "{path} {status} once: re-imported"
         );
         assert_eq!(
-            h.fake
-                .state()
-                .page(our_page)
-                .map(|p| p["selectedPerkIds"].clone()),
+            perks(&h, our_page),
             Some(edited),
             "{path} {status} once: the user's edits were overwritten"
         );
+        // The UI isn't told "champ select over" for one bad answer: it would
+        // forget the auto-import, and with it the "Import matchup build?"
+        // hint when the lane opponent shows up later.
+        let cleared: Vec<_> = h.events("champ-select")[events_before..]
+            .iter()
+            .filter(|cs| cs["in_champ_select"] == json!(false))
+            .cloned()
+            .collect();
+        assert!(cleared.is_empty(), "{path} {status} once: UI cleared");
+        assert!(h.champ_select().await.in_champ_select);
     }
+}
+
+/// The League client restarts mid champ select (it answers "None" while it
+/// starts up), then rejoins the same champ select: no second import over the
+/// user's edits. The next real champ select imports again.
+#[tokio::test]
+async fn league_restart_mid_champ_select_does_not_reimport() {
+    let mut h = Harness::new("e2e-league-restart", Settings::default(), |_| {}).await;
+    let draft = Draft::ranked().hover(YORICK).lock();
+    let (our_page, edited) = locked_in_and_edited_in(&mut h, &draft).await;
+    h.client_shows("None", None);
+    h.ticks(LEAVE_POLLS + 3).await;
+    // Shown as "not in champ select" once it lasts.
+    assert!(!h.champ_select().await.in_champ_select);
+    h.client_shows("ChampSelect", Some(&draft));
+    h.ticks(3).await;
+    assert!(h.champ_select().await.in_champ_select);
+    assert_eq!(
+        h.auto_imports().len(),
+        1,
+        "re-imported after a client restart"
+    );
+    assert_eq!(perks(&h, our_page), Some(edited));
+
+    // A dodge: lobby, queue, a new champ select → imported once.
+    h.client_shows("Lobby", None);
+    h.ticks(LEAVE_POLLS).await;
+    h.client_shows("Matchmaking", None);
+    h.tick().await;
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.ticks(3).await;
+    assert_eq!(h.auto_imports().len(), 2);
+}
+
+// ---------------------------------------------------------------------------
+// u.gg slow or hanging: the poll loop never waits for it
+// ---------------------------------------------------------------------------
+
+/// Requests to u.gg for builds (general, matchup and ARAM files).
+const BUILD_FILES: &str = "/overview/";
+
+/// Connected in the lobby, champion roles loaded.
+async fn in_lobby(name: &str) -> Harness {
+    let mut h = Harness::new(name, Settings::default(), |_| {}).await;
+    h.client_shows("Lobby", None);
+    h.tick().await;
+    h
+}
+
+#[tokio::test]
+async fn hanging_ugg_never_holds_up_champ_select_updates() {
+    let mut h = in_lobby("e2e-hang").await;
+    h.ugg().set_stalled(BUILD_FILES, true);
+
+    // Lock in: the import starts in the background and waits for u.gg.
+    let draft = Draft::ranked().enemy_locks(1, LEE_SIN).hover(YORICK).lock();
+    h.client_shows("ChampSelect", Some(&draft));
+    h.poll().await;
+    assert!(h.champ_select().await.my_champion_locked);
+
+    // u.gg doesn't answer; champ select keeps updating every poll.
+    let draft = draft.enemy_locks(0, GWEN);
+    h.client_shows("ChampSelect", Some(&draft));
+    h.poll().await;
+    let cs = h.events("champ-select").pop().unwrap();
+    assert_eq!(cs["lane_opponent_id"], json!(GWEN), "UI not updated");
+    for _ in 0..5 {
+        h.poll().await;
+    }
+    h.client_shows("ChampSelect", Some(&draft.clone().finalization()));
+    h.poll().await;
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    assert!(h.auto_imports().is_empty());
+
+    // u.gg answers: imported once, with what was known at lock-in.
+    h.ugg().set_stalled(BUILD_FILES, false);
+    h.settle().await;
+    let imports = h.auto_imports();
+    assert_eq!(imports.len(), 1);
+    assert_eq!(imports[0].opponent_id, None);
+    assert!(imports[0].result.runes && imports[0].result.item_set);
+    assert_eq!(h.writes().len(), 3, "{:?}", h.writes());
+    h.ticks(5).await;
+    assert_eq!(h.auto_imports().len(), 1);
+    assert_eq!(h.writes().len(), 3, "{:?}", h.writes());
+    assert_never_touched_spells_or_defaults(&h.fake.state());
+}
+
+/// The build arrives after the user left champ select (a dodge): nothing is
+/// written — whether the watcher already counted the champ select as left or
+/// not. The next champ select imports once.
+#[tokio::test]
+async fn build_arriving_after_a_dodge_writes_nothing() {
+    for lobby_polls in [1, LEAVE_POLLS + 1] {
+        let mut h = in_lobby("e2e-late-build").await;
+        h.ugg().set_stalled(BUILD_FILES, true);
+        h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+        h.poll().await;
+        // Someone dodges while u.gg is slow: shown right away.
+        h.client_shows("Lobby", None);
+        for _ in 0..lobby_polls {
+            h.poll().await;
+        }
+        assert_eq!(h.lcu_status().await.phase, "Lobby");
+        assert!(!h.champ_select().await.in_champ_select);
+        let last_cs = h.events("champ-select").pop().unwrap();
+        assert_eq!(last_cs["in_champ_select"], json!(false));
+        h.ugg().set_stalled(BUILD_FILES, false);
+        h.settle().await;
+        assert!(h.writes().is_empty(), "{lobby_polls}: {:?}", h.writes());
+        assert!(h.auto_imports().is_empty(), "{lobby_polls}");
+
+        h.ticks(LEAVE_POLLS).await;
+        h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+        h.ticks(3).await;
+        assert_eq!(h.auto_imports().len(), 1, "{lobby_polls}");
+        assert_eq!(h.writes().len(), 3, "{lobby_polls}: {:?}", h.writes());
+    }
+}
+
+/// The next champ select's lock-in comes while the old build is still
+/// loading: the old import never writes, the new one imports once.
+#[tokio::test]
+async fn old_build_never_lands_in_the_next_champ_select() {
+    let mut h = in_lobby("e2e-old-build").await;
+    h.ugg().set_stalled(BUILD_FILES, true);
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.poll().await;
+    h.client_shows("Lobby", None);
+    for _ in 0..LEAVE_POLLS {
+        h.poll().await;
+    }
+    // Requeue; this time Gwen is known at lock-in.
+    let draft = Draft::ranked().enemy_locks(0, GWEN).hover(YORICK).lock();
+    h.client_shows("ChampSelect", Some(&draft));
+    h.poll().await;
+    h.ugg().set_stalled(BUILD_FILES, false);
+    h.settle().await;
+    h.ticks(3).await;
+    let imports = h.auto_imports();
+    assert_eq!(imports.len(), 1, "{imports:?}");
+    assert_eq!(imports[0].opponent_id, Some(GWEN));
+    let st = h.fake.state();
+    assert_eq!(st.count("POST", "/lol-perks/v1/pages"), 1);
+    assert_eq!(st.count("PUT", "/lol-item-sets/"), 1);
+    let ours: Vec<_> = st.our_pages().iter().map(|p| p["name"].clone()).collect();
+    assert_eq!(ours, vec![json!("CSH: Yorick vs Gwen")]);
+}
+
+/// The same, without passing through the lobby long enough for the watcher
+/// to notice (the new champ select is told apart by its game id).
+#[tokio::test]
+async fn old_build_never_lands_in_a_new_champ_select_seen_directly() {
+    let mut h = in_lobby("e2e-old-build-direct").await;
+    h.ugg().set_stalled(BUILD_FILES, true);
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.poll().await;
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.poll().await;
+    h.ugg().set_stalled(BUILD_FILES, false);
+    h.settle().await;
+    h.ticks(3).await;
+    assert_eq!(h.auto_imports().len(), 1);
+    assert_eq!(h.fake.state().count("POST", "/lol-perks/v1/pages"), 1);
+}
+
+/// ARAM: a bench swap while the build is loading → only the new champion is
+/// imported (the old one never writes).
+#[tokio::test]
+async fn aram_swap_while_the_build_loads_imports_only_the_new_champion() {
+    let mut h = in_lobby("e2e-aram-swap").await;
+    h.ugg().set_stalled(BUILD_FILES, true);
+    let draft = Draft::aram(450, YORICK, vec![ASHE]);
+    h.client_shows("ChampSelect", Some(&draft));
+    h.poll().await;
+    h.client_shows("ChampSelect", Some(&draft.swap_to(ASHE)));
+    h.poll().await;
+    h.ugg().set_stalled(BUILD_FILES, false);
+    h.settle().await;
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    h.ticks(3).await;
+    let imports = h.auto_imports();
+    assert_eq!(imports.len(), 1, "{imports:?}");
+    assert_eq!(imports[0].champion_id, ASHE);
+    assert_eq!(h.fake.state().count("POST", "/lol-perks/v1/pages"), 1);
+}
+
+/// Draft: a trade before the (slow) build arrived. Nothing is written for
+/// the champion that was traded away, and a trade never starts an import.
+#[tokio::test]
+async fn trade_while_the_build_loads_imports_nothing() {
+    let mut h = in_lobby("e2e-trade-slow").await;
+    h.ugg().set_stalled(BUILD_FILES, true);
+    let draft = Draft::ranked().hover(YORICK).lock();
+    h.client_shows("ChampSelect", Some(&draft));
+    h.poll().await;
+    h.client_shows("ChampSelect", Some(&draft.traded_to(GWEN)));
+    h.poll().await;
+    h.ugg().set_stalled(BUILD_FILES, false);
+    h.settle().await;
+    h.ticks(5).await;
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    assert!(h.auto_imports().is_empty());
+}
+
+/// u.gg has no build at lock-in: nothing written, the user is told, and it
+/// is NEVER retried later (owner rule: one auto-import chance, at lock-in),
+/// even once u.gg is back.
+#[tokio::test]
+async fn failed_build_fetch_is_never_retried() {
+    let mut h = in_lobby("e2e-no-retry").await;
+    let overview = h.dir.join("ugg").join(cache_file_name(&format!(
+        "{UGG}/overview/16_19/ranked_solo_5x5/83/1.5.0.json"
+    )));
+    let saved = std::fs::read(&overview).unwrap();
+    std::fs::remove_file(&overview).unwrap();
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.ticks(3).await;
+    assert!(h.writes().is_empty());
+    let imports = h.auto_imports();
+    assert_eq!(imports.len(), 1, "the user is told: {imports:?}");
+    assert!(!imports[0].result.runes && !imports[0].result.item_set);
+    assert!(imports[0].result.messages[0].contains("Press Import"));
+
+    // u.gg is back: still nothing, however long we wait.
+    std::fs::write(&overview, saved).unwrap();
+    h.ugg().clear_memory();
+    h.ticks(10).await;
+    assert!(h.writes().is_empty(), "retried: {:?}", h.writes());
+    assert_eq!(h.auto_imports().len(), 1);
+}
+
+/// u.gg's champion roles hang: champ select still updates (no enemy role
+/// guesses meanwhile). Lock-in waits a moment for them so the import knows
+/// the lane opponent; once they arrive the lane opponent is shown.
+#[tokio::test]
+async fn hanging_roles_never_hold_up_champ_select_updates() {
+    let mut h = Harness::new("e2e-roles-hang", Settings::default(), |_| {}).await;
+    h.ugg().set_stalled("/primary_roles/", true);
+    let draft = Draft::ranked().enemy_locks(0, GWEN).hover(YORICK);
+    h.client_shows("ChampSelect", Some(&draft));
+    h.poll().await;
+    h.poll().await;
+    let cs = h.champ_select().await;
+    assert!(cs.in_champ_select);
+    assert_eq!(cs.my_champion_id, Some(YORICK));
+    assert_eq!(cs.enemies[0].champion_id, GWEN);
+    assert_eq!(cs.enemies[0].role, None, "no role data yet");
+    assert_eq!(cs.lane_opponent_id, None);
+
+    h.client_shows("ChampSelect", Some(&draft.lock()));
+    h.poll().await;
+    assert!(h.champ_select().await.my_champion_locked);
+    assert!(h.writes().is_empty(), "imported without the lane opponent");
+
+    h.ugg().set_stalled("/primary_roles/", false);
+    h.settle().await;
+    h.ticks(2).await;
+    assert_eq!(h.champ_select().await.lane_opponent_id, Some(GWEN));
+    let imports = h.auto_imports();
+    assert_eq!(imports.len(), 1);
+    assert_eq!(imports[0].opponent_id, Some(GWEN));
+}
+
+/// u.gg moves to a new patch while the app runs: the champion roles are
+/// reloaded (checked at most hourly), so enemy lanes are guessed with them.
+#[tokio::test]
+async fn champion_roles_reload_after_a_patch_change() {
+    let mut h = in_lobby("e2e-roles-patch").await;
+    // Patch 16_20 is out, and Gwen is now mostly played mid.
+    let ugg_dir = h.dir.join("ugg");
+    let mut versions: Value = serde_json::from_slice(&fixture("ugg-api-versions.json")).unwrap();
+    versions["16_20"] = versions["16_19"].clone();
+    std::fs::write(
+        ugg_dir.join(cache_file_name(UGG_VERSIONS)),
+        versions.to_string(),
+    )
+    .unwrap();
+    let mut roles: Value = serde_json::from_slice(&fixture("primary_roles.json")).unwrap();
+    roles[GWEN.to_string()] = json!([5, 4]);
+    std::fs::write(
+        ugg_dir.join(cache_file_name(&format!(
+            "{UGG}/primary_roles/16_20/1.5.0.json"
+        ))),
+        roles.to_string(),
+    )
+    .unwrap();
+    h.ugg().clear_memory();
+
+    let draft = Draft::ranked().enemy_locks(0, GWEN).hover(YORICK);
+    h.client_shows("ChampSelect", Some(&draft));
+    h.ticks(3).await;
+    // Not re-checked within the hour: still 16_19's roles.
+    assert_eq!(h.champ_select().await.lane_opponent_id, Some(GWEN));
+
+    h.watcher.expire_roles_check();
+    h.ticks(2).await;
+    let cs = h.champ_select().await;
+    assert_eq!(cs.enemies[0].role, Some(Role::Mid));
+    assert_eq!(cs.lane_opponent_id, None);
+}
+
+// ---------------------------------------------------------------------------
+// App restart mid champ select
+// ---------------------------------------------------------------------------
+
+/// The app is closed and started again during champ select, after the
+/// auto-import: it remembers (marker file) and doesn't import over the
+/// user's edits. A different champ select still imports once.
+#[tokio::test]
+async fn app_restart_mid_champ_select_does_not_reimport() {
+    let mut h = Harness::new("e2e-app-restart", Settings::default(), |_| {}).await;
+    let draft = Draft::ranked().hover(YORICK).lock();
+    let (our_page, edited) = locked_in_and_edited_in(&mut h, &draft).await;
+    assert!(h.marker().exists());
+
+    h.restart_app();
+    h.ticks(4).await;
+    assert!(h.champ_select().await.my_champion_locked);
+    assert_eq!(
+        h.auto_imports().len(),
+        1,
+        "re-imported after an app restart"
+    );
+    assert_eq!(perks(&h, our_page), Some(edited));
+
+    // Restarted again, now in a different champ select: imports once.
+    h.restart_app();
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.ticks(4).await;
+    assert_eq!(h.auto_imports().len(), 2);
+
+    // Out of champ select the marker is gone.
+    h.client_shows("InProgress", None);
+    h.ticks(LEAVE_POLLS).await;
+    assert!(!h.marker().exists());
+    h.restart_app();
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.ticks(3).await;
+    assert_eq!(h.auto_imports().len(), 3);
+}
+
+/// Auto-import was off at lock-in, then switched on and the app restarted:
+/// still nothing imported in that champ select.
+#[tokio::test]
+async fn app_restart_after_lock_in_with_auto_import_off_does_not_import() {
+    let off = Settings {
+        auto_import: false,
+        ..Settings::default()
+    };
+    let mut h = Harness::new("e2e-app-restart-off", off, |_| {}).await;
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.ticks(3).await;
+    h.state().settings.write().await.auto_import = true;
+    h.restart_app();
+    h.ticks(3).await;
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    assert!(h.auto_imports().is_empty());
 }
 
 // ---------------------------------------------------------------------------

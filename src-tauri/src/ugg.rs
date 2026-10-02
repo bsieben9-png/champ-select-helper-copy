@@ -933,6 +933,19 @@ impl Ugg {
         }
     }
 
+    /// Tests: requests whose URL contains `pattern` hang until released
+    /// (`stalled: false`), like u.gg accepting a request and never answering.
+    #[cfg(test)]
+    pub(crate) fn set_stalled(&self, pattern: &str, stalled: bool) {
+        self.http.set_stalled(pattern, stalled);
+    }
+
+    /// Tests: forget parsed files (disk copies are read again).
+    #[cfg(test)]
+    pub(crate) fn clear_memory(&self) {
+        self.http.clear_memory();
+    }
+
     async fn versions(&self) -> anyhow::Result<Arc<Versions>> {
         self.http
             .get(VERSIONS_URL, VERSIONS_TTL, parse_versions)
@@ -1034,7 +1047,15 @@ impl Ugg {
 
     /// Champion id → roles, most played first.
     pub async fn primary_roles(&self) -> anyhow::Result<HashMap<u32, Vec<Role>>> {
-        let (_, roles) = self
+        Ok(self.primary_roles_with_patch().await?.1)
+    }
+
+    /// [`Self::primary_roles`] and the u.gg patch they are from (the previous
+    /// patch on patch day, until u.gg publishes the new file).
+    pub async fn primary_roles_with_patch(
+        &self,
+    ) -> anyhow::Result<(String, HashMap<u32, Vec<Role>>)> {
+        let (patch, roles) = self
             .stats_file(
                 "primary_roles",
                 |patch, ver| format!("{BASE}/primary_roles/{patch}/{ver}.json"),
@@ -1042,7 +1063,7 @@ impl Ugg {
             )
             .await?
             .ok_or_else(|| anyhow!("u.gg primary roles file not found"))?;
-        Ok((*roles).clone())
+        Ok((patch, (*roles).clone()))
     }
 
     /// Recommended build. `role: None` → the champion's most played role

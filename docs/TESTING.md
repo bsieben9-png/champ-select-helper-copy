@@ -56,14 +56,31 @@ Covered:
   password → no panic, status "not connected", champ select cleared. A
   dropped connection after lock-in + reconnect into the same champ select →
   no second import over the user's edits.
+- One error answer after lock-in (gameflow-phase 503, champ-select session
+  404) → no second import, and the UI isn't told "champ select over" (it
+  would lose the "Import matchup build?" hint). League restarting mid champ
+  select (phase "None" for a while, then the same champ select) → no second
+  import.
+- **u.gg slow or hanging** (test hook `Ugg::set_stalled`): every poll still
+  returns at once and the UI keeps getting `champ-select` / `lcu-status`
+  updates; the import lands once when u.gg answers, with the opponent known at
+  lock-in. A build that arrives after a dodge, or once the next champ select
+  started, writes nothing; ARAM swap while loading → only the new champion;
+  trade while loading → nothing. A failed build fetch is retried after 15 s,
+  not before. Hanging champion roles → champ select still shown (no lane
+  guesses); lock-in waits up to 5 s for them.
+- u.gg moves to a new patch while the app runs → champion roles reloaded
+  (checked at most hourly).
+- **App restart** mid champ select after the import (marker file
+  `last_import.json`) → no second import; also when auto-import was off at
+  lock-in. A different champ select after a restart imports once.
 - Every UI `invoke()` call with the exact argument names of `src/lib/api.ts`
   through Tauri's IPC layer (catches camelCase/snake_case mismatches, e.g.
   `overwritePageId`).
 
-Known bug, kept as an ignored test until fixed:
-`cargo test error_answer_after_lock_in -- --ignored` — one error *answer*
-after lock-in (gameflow-phase 503, or champ-select session 404) still resets
-the import memory, so the next poll imports again over the user's edits.
+The fake client gives every new champ select its own `gameId` (as League
+does); the watcher uses it to tell a new champ select from the same one seen
+again.
 
 ## 3. Live data sweep
 

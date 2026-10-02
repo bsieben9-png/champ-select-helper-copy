@@ -550,11 +550,19 @@ async fn serve_one(
 // Scripted champ select sessions
 // ---------------------------------------------------------------------------
 
+fn next_game_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(7212345678);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Builds `/lol-champ-select/v1/session` documents shaped like the real
 /// client's, step by step: planning intent → hover → lock → enemy picks.
 #[derive(Clone)]
 pub struct Draft {
     pub queue_id: i64,
+    /// `gameId`: every new champ select (`Draft::ranked()`, …) gets its own,
+    /// steps derived from it (`.hover()`, `.lock()`, …) keep it.
+    pub game_id: u64,
     pub local_cell: i64,
     /// (cellId, assignedPosition, championId, championPickIntent)
     my_team: Vec<(i64, &'static str, u32, u32)>,
@@ -572,6 +580,7 @@ impl Draft {
     pub fn ranked() -> Draft {
         Draft {
             queue_id: 420,
+            game_id: next_game_id(),
             local_cell: 2,
             my_team: vec![
                 (0, "jungle", 0, 0),
@@ -601,6 +610,7 @@ impl Draft {
     pub fn aram(queue_id: i64, my_champion: u32, bench: Vec<u32>) -> Draft {
         Draft {
             queue_id,
+            game_id: next_game_id(),
             local_cell: 7,
             my_team: vec![
                 (5, "", 222, 0),
@@ -743,7 +753,7 @@ impl Draft {
             "bans": {"myTeamBans": [], "numBans": 0, "theirTeamBans": []},
             "benchChampions": self.bench.iter().map(|c| json!({"championId": c, "isPriority": false})).collect::<Vec<_>>(),
             "benchEnabled": !self.bench.is_empty(),
-            "gameId": 7212345678u64,
+            "gameId": self.game_id,
             "hasSimultaneousBans": true,
             "hasSimultaneousPicks": self.picks.is_empty(),
             "isCustomGame": false,

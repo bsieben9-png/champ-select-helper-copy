@@ -1479,7 +1479,7 @@ pub(crate) mod tests {
     fn counters_from_enemy_file() {
         let file = matchups_fixture();
         let rows = &file.rows[&(12, 17, 4)];
-        let settings = Settings::default(); // min_games 100
+        let settings = Settings::auto_on(); // min_games 100
         let counters = compute_counters(YORICK, rows, &settings);
         assert!(!counters.is_empty() && counters.len() <= COUNTERS_MAX);
         assert!(counters.iter().all(|c| c.games >= 100));
@@ -1491,7 +1491,7 @@ pub(crate) mod tests {
             rows,
             &Settings {
                 champion_pool: vec![GWEN],
-                ..Settings::default()
+                ..Settings::auto_on()
             },
         );
         let gwen = all.iter().find(|c| c.champion_id == GWEN).unwrap();
@@ -1523,7 +1523,7 @@ pub(crate) mod tests {
         let s = Settings {
             min_games: 100,
             champion_pool: vec![5, 6],
-            ..Settings::default()
+            ..Settings::auto_on()
         };
         // Only 3 pass 100 → relax to max(100/4, 10) = 25.
         let c = compute_counters(99, &rows, &s);
@@ -1552,7 +1552,7 @@ pub(crate) mod tests {
         let s = Settings {
             min_games: 100,
             champion_pool: vec![60],
-            ..Settings::default()
+            ..Settings::auto_on()
         };
         let c = compute_counters(0, &many, &s);
         assert_eq!(c.len(), COUNTERS_MAX);
@@ -1574,7 +1574,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn build_yorick_vs_gwen_offline() {
         let (ugg, dir) = seeded_ugg("ugg-build");
-        let s = Settings::default();
+        let s = Settings::auto_on();
         assert_eq!(ugg.latest_patch().await.unwrap(), "16_19");
 
         let b = ugg
@@ -1669,7 +1669,7 @@ pub(crate) mod tests {
         let (ugg, dir) = seeded_ugg("ugg-aram");
         let s = Settings {
             rank: "challenger".into(),
-            ..Settings::default()
+            ..Settings::auto_on()
         };
         let b = ugg
             .build(YORICK, Some(Role::Top), Some(GWEN), Queue::AramMayhem, &s)
@@ -1770,7 +1770,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn mayhem_augments_previous_patch_and_missing() {
         let (ugg, dir) = seeded_ugg("ugg-mayhem");
-        let s = Settings::default();
+        let s = Settings::auto_on();
         // Ranking only on 16_18 (patch day) → used, icons point at 16_18;
         // names still come from the newest manifest.
         std::fs::rename(
@@ -1810,7 +1810,7 @@ pub(crate) mod tests {
         ));
         std::fs::rename(new, old).unwrap();
         let b = ugg
-            .build(YORICK, None, None, Queue::RankedSolo, &Settings::default())
+            .build(YORICK, None, None, Queue::RankedSolo, &Settings::auto_on())
             .await
             .unwrap();
         assert_eq!(b.patch, "16_18");
@@ -1820,7 +1820,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn matchups_counters_roles_offline() {
         let (ugg, dir) = seeded_ugg("ugg-matchups");
-        let s = Settings::default();
+        let s = Settings::auto_on();
         let m = ugg
             .matchups(YORICK, Role::Top, Queue::RankedSolo, &s)
             .await
@@ -1890,7 +1890,7 @@ pub(crate) mod tests {
     fn tier_list_rates_and_filters() {
         let file = ranking_fixture();
         let rows = file.rows(Some(Role::Top)).unwrap();
-        let s = Settings::default();
+        let s = Settings::auto_on();
         let list = compute_tier_list(&file, rows, &s);
         assert!((30..=100).contains(&list.len()), "{} champions", list.len());
         assert!(list.windows(2).all(|w| w[0].win_rate >= w[1].win_rate));
@@ -1911,7 +1911,7 @@ pub(crate) mod tests {
             .unwrap();
         let pool = Settings {
             champion_pool: vec![YORICK, rare.champion_id],
-            ..Settings::default()
+            ..Settings::auto_on()
         };
         let list = compute_tier_list(&file, rows, &pool);
         assert!(list
@@ -1929,7 +1929,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn tier_list_offline() {
         let (ugg, dir) = seeded_ugg("ugg-tier");
-        let s = Settings::default();
+        let s = Settings::auto_on();
         let list = ugg
             .tier_list(Role::Support, Queue::RankedSolo, &s)
             .await
@@ -1938,7 +1938,7 @@ pub(crate) mod tests {
         // kr files aren't seeded (= 403) → widens to world.
         let kr = Settings {
             region: "kr".into(),
-            ..Settings::default()
+            ..Settings::auto_on()
         };
         let list_kr = ugg
             .tier_list(Role::Support, Queue::NormalDraft, &kr)
@@ -1960,7 +1960,7 @@ pub(crate) mod tests {
     async fn live_yorick_vs_gwen() {
         let dir = temp_dir("ugg-live");
         let ugg = Ugg::new(dir.clone());
-        let s = Settings::default();
+        let s = Settings::auto_on();
         let patch = ugg.latest_patch().await.unwrap();
         println!("latest u.gg patch: {patch}");
         let b = ugg
@@ -2030,7 +2030,7 @@ pub(crate) mod tests {
         let dir = temp_dir("ugg-live-mayhem");
         let ugg = Ugg::new(dir.clone());
         let b = ugg
-            .build(YORICK, None, None, Queue::AramMayhem, &Settings::default())
+            .build(YORICK, None, None, Queue::AramMayhem, &Settings::auto_on())
             .await
             .unwrap();
         println!(

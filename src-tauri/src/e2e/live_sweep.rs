@@ -435,7 +435,7 @@ async fn live_sweep() {
         .unwrap_or_else(|| std::env::temp_dir().join("csh-live-sweep"));
     let ugg = Arc::new(Ugg::new(cache.join("ugg")));
     let ddragon = DDragon::new(cache.join("ddragon"));
-    let settings = Arc::new(Settings::default());
+    let settings = Arc::new(Settings::auto_on());
     let patch = ugg.latest_patch().await.expect("u.gg versions");
     let roles = ugg.primary_roles().await.expect("u.gg primary roles");
     let sd = ddragon

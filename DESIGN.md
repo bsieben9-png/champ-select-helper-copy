@@ -12,6 +12,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Tech | **Tauri 2** (Rust backend + Svelte 5/TypeScript UI). Target: Windows 10/11 (WebView2). |
 | Import into client | **Auto-import** (toggle on/off in settings) **and** a manual **Import** button. |
 | Window | Normal window. |
+| Distribution | **Portable `.exe` only**, no installers (GitHub Release + CI artifact). |
 | Stats | **Emerald+**, **World** by default; both changeable in Settings. |
 | Counters | Highest win rate vs the enemy in that role, ignoring matchups below a **minimum games** threshold. |
 | Jungle / Support | **Role vs role** (jungle vs enemy jungler, support vs enemy support). |

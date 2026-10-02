@@ -73,7 +73,9 @@ impl Queue {
             420 => Some(Queue::RankedSolo),
             440 => Some(Queue::RankedFlex),
             400 => Some(Queue::NormalDraft),
-            430 | 490 => Some(Queue::NormalBlind),
+            430 | 480 | 490 => Some(Queue::NormalBlind),
+            // Clash: draft with lanes, use ranked solo data.
+            700 => Some(Queue::NormalDraft),
             450 => Some(Queue::Aram),
             2400 | 2450 => Some(Queue::AramMayhem),
             _ => None,
@@ -412,6 +414,8 @@ mod tests {
     fn lcu_queue_ids() {
         assert_eq!(Queue::from_lcu_queue_id(450), Some(Queue::Aram));
         assert_eq!(Queue::from_lcu_queue_id(2400), Some(Queue::AramMayhem));
+        assert_eq!(Queue::from_lcu_queue_id(700), Some(Queue::NormalDraft));
+        assert_eq!(Queue::from_lcu_queue_id(480), Some(Queue::NormalBlind));
         assert_eq!(Queue::from_lcu_queue_id(2450), Some(Queue::AramMayhem));
         assert_eq!(Queue::from_lcu_queue_id(1700), None); // Arena
         assert_eq!(Queue::AramMayhem.ugg_queue(), "normal_aram");

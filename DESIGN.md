@@ -118,11 +118,12 @@ Sample (Emerald+, World, top): Yorick vs Gwen = 327 wins / 602 games (54.3%).
 | Queue id | `GET /lol-gameflow/v1/session` → `gameData.queue.id` |
 | Summoner id | `GET /lol-summoner/v1/current-summoner` |
 | Rune pages | `GET /lol-perks/v1/pages`, `DELETE /lol-perks/v1/pages/{id}`, `POST /lol-perks/v1/pages` `{name, primaryStyleId, subStyleId, selectedPerkIds[9], current:true}` |
-| Spells | `PATCH /lol-champ-select/v1/session/my-selection` `{spell1Id, spell2Id}` |
 | Item set | `GET`/`PUT /lol-item-sets/v1/item-sets/{summonerId}/sets` |
 
-Auth: HTTP Basic `riot:<password>`; the client uses a self-signed Riot
-certificate (trust Riot's root cert, `riotgames.pem`, only for 127.0.0.1).
+Auth: HTTP Basic `riot:<password>`. The client uses a self-signed Riot
+certificate that rustls can't verify (old v1 root, IP not in SAN), so the LCU
+HTTP client accepts invalid certs. It only ever talks to 127.0.0.1, never via a proxy.
+Spells are never written (recommendation only).
 Rune pages and item sets the app creates are named with the prefix
 **`CSH: `** so it only ever replaces its own.
 

@@ -132,16 +132,22 @@ async fn get_lcu_status(state: State<'_, AppState>) -> CmdResult<LcuStatus> {
     Ok(state.lcu_status.read().await.clone())
 }
 
+/// `overwrite_page_id`: the user agreed to replace this rune page (from
+/// `ImportResult.needs_confirmation`) because all rune page slots are used.
 #[tauri::command]
-async fn import_build(state: State<'_, AppState>, build: Build) -> CmdResult<ImportResult> {
+async fn import_build(
+    state: State<'_, AppState>,
+    build: Build,
+    overwrite_page_id: Option<u64>,
+) -> CmdResult<ImportResult> {
     let settings = state.settings.read().await.clone();
     let static_data = state.static_data().await.ok();
-    let lcu = state.lcu.read().await;
-    let Some(client) = lcu.as_ref() else {
+    // Clone the client so the lock isn't held during the import.
+    let Some(client) = state.lcu.read().await.clone() else {
         return Err("League client is not running".into());
     };
     Ok(client
-        .import_build(&build, &settings, static_data.as_ref())
+        .import_build(&build, &settings, static_data.as_ref(), overwrite_page_id)
         .await)
 }
 

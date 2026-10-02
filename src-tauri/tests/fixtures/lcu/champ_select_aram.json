@@ -1,0 +1,56 @@
+{
+  "actions": [],
+  "allowBattleBoost": true,
+  "allowDuplicatePicks": false,
+  "allowLockedEvents": false,
+  "allowPlayerPickSameChampion": false,
+  "allowRerolling": true,
+  "allowSkinSelection": true,
+  "allowSubsetChampionPicks": false,
+  "bans": {"myTeamBans": [], "numBans": 0, "theirTeamBans": []},
+  "benchChampions": [
+    {"championId": 22, "isPriority": false},
+    {"championId": 99, "isPriority": false},
+    {"championId": 201, "isPriority": true}
+  ],
+  "benchEnabled": true,
+  "boostableSkinCount": 1,
+  "chatDetails": {
+    "mucJwtDto": {"channelClaim": "", "domain": "", "jwt": "", "targetRegion": ""},
+    "multiUserChatId": "c1~aa11bb22cc33",
+    "multiUserChatPassword": ""
+  },
+  "counter": 6,
+  "disallowBanningTeammateHoveredChampions": false,
+  "gameId": 7212350000,
+  "hasSimultaneousBans": false,
+  "hasSimultaneousPicks": true,
+  "id": "c5f3e4d6-7081-4c9d-aebf-2a3b4c5d6e7f",
+  "isCustomGame": false,
+  "isLegacyChampSelect": false,
+  "isSpectating": false,
+  "localPlayerCellId": 7,
+  "lockedEventIndex": -1,
+  "myTeam": [
+    {"assignedPosition": "", "cellId": 5, "championId": 222, "championPickIntent": 0, "gameName": "Get Excited", "nameVisibilityType": "VISIBLE", "playerType": "PLAYER", "puuid": "q5", "selectedSkinId": 222000, "spell1Id": 32, "spell2Id": 4, "summonerId": 2001, "tagLine": "EUW", "team": 2, "wardSkinId": -1},
+    {"assignedPosition": "", "cellId": 6, "championId": 412, "championPickIntent": 0, "gameName": "Lantern", "nameVisibilityType": "VISIBLE", "playerType": "PLAYER", "puuid": "q6", "selectedSkinId": 412000, "spell1Id": 4, "spell2Id": 32, "summonerId": 2002, "tagLine": "EUW", "team": 2, "wardSkinId": -1},
+    {"assignedPosition": "", "cellId": 7, "championId": 83, "championPickIntent": 0, "gameName": "Yorick Main", "nameVisibilityType": "VISIBLE", "playerType": "PLAYER", "puuid": "9f0e8d7c-6b5a-4938-2716-05f4e3d2c1b0", "selectedSkinId": 83000, "spell1Id": 4, "spell2Id": 32, "summonerId": 123456789, "tagLine": "EUW", "team": 2, "wardSkinId": 1},
+    {"assignedPosition": "", "cellId": 8, "championId": 103, "championPickIntent": 0, "gameName": "Charm", "nameVisibilityType": "VISIBLE", "playerType": "PLAYER", "puuid": "q8", "selectedSkinId": 103000, "spell1Id": 4, "spell2Id": 14, "summonerId": 2004, "tagLine": "EUW", "team": 2, "wardSkinId": -1},
+    {"assignedPosition": "", "cellId": 9, "championId": 86, "championPickIntent": 0, "gameName": "Spin", "nameVisibilityType": "VISIBLE", "playerType": "PLAYER", "puuid": "q9", "selectedSkinId": 86000, "spell1Id": 6, "spell2Id": 4, "summonerId": 2005, "tagLine": "EUW", "team": 2, "wardSkinId": -1}
+  ],
+  "pickOrderSwaps": [],
+  "positionSwaps": [],
+  "queueId": 450,
+  "rerollsRemaining": 1,
+  "showQuitButton": false,
+  "skipChampionSelect": false,
+  "theirTeam": [],
+  "timer": {
+    "adjustedTimeLeftInPhase": 48000,
+    "internalNowInEpochMs": 1791012400000,
+    "isInfinite": false,
+    "phase": "BAN_PICK",
+    "totalTimeInPhase": 60000
+  },
+  "trades": []
+}

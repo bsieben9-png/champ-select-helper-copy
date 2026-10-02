@@ -14,19 +14,16 @@ export type Queue =
 /** Where stats come from (only u.gg for now). */
 export type Source = "ugg";
 
-export type FlashSlot = "auto" | "d" | "f";
-
 export interface Settings {
+  /** Import runes + item set once, when you lock in. Spells are never changed. */
   auto_import: boolean;
   import_runes: boolean;
-  import_spells: boolean;
   import_item_set: boolean;
   /** u.gg rank key, e.g. "emerald_plus" */
   rank: string;
   /** u.gg region key, e.g. "world" */
   region: string;
   min_games: number;
-  flash_slot: FlashSlot;
   champion_pool: number[];
   counters_pool_only: boolean;
   source: Source;
@@ -187,11 +184,18 @@ export interface LcuStatus {
   phase: string;
 }
 
+export interface RunePageRef {
+  id: number;
+  name: string;
+}
+
 export interface ImportResult {
   runes: boolean;
-  spells: boolean;
   item_set: boolean;
   messages: string[];
+  /** All rune page slots are used: the user's current page we'd overwrite if
+   * they agree (call import_build again with overwritePageId = id). */
+  needs_confirmation: RunePageRef | null;
 }
 
 export interface AutoImportEvent {

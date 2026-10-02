@@ -1096,3 +1096,53 @@ async fn ui_invoke_calls_reach_the_commands() {
     )
     .is_err());
 }
+
+// ---------------------------------------------------------------------------
+// Request rate
+// ---------------------------------------------------------------------------
+
+/// Far from champ select (home screen, in game) the client is only asked for
+/// its phase, every few seconds; in and right before champ select every
+/// second. Right after champ select it stays fast for a few polls, so a dodge
+/// is still noticed (and the next champ select imports again).
+#[tokio::test]
+async fn polls_slowly_away_from_champ_select() {
+    let fast = Duration::from_secs(1);
+    let mut h = Harness::new("e2e-poll-rate", Settings::default(), |_| {}).await;
+
+    h.client_shows("None", None);
+    h.ticks(3).await;
+    assert!(h.tick().await > fast, "home screen polled every second");
+    for phase in ["Lobby", "Matchmaking", "ReadyCheck"] {
+        h.client_shows(phase, None);
+        assert_eq!(h.tick().await, fast, "{phase}");
+    }
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    assert_eq!(h.tick().await, fast);
+    assert_eq!(h.auto_imports().len(), 1);
+
+    // In game: fast for the first polls, then only the phase, slowly.
+    h.client_shows("InProgress", None);
+    assert_eq!(h.tick().await, fast);
+    h.ticks(2).await;
+    let before = h.fake.state().log.len();
+    assert!(h.tick().await > fast, "in game polled every second");
+    let paths: Vec<String> = h.fake.state().log[before..]
+        .iter()
+        .map(|r| format!("{} {}", r.method, r.path))
+        .collect();
+    assert_eq!(paths, ["GET /lol-gameflow/v1/gameflow-phase"]);
+
+    // A dodge right after lock-in: back in the queue (fast polls), then the
+    // new champ select imports again.
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.tick().await;
+    assert_eq!(h.auto_imports().len(), 2);
+    h.client_shows("Matchmaking", None);
+    for _ in 0..3 {
+        assert_eq!(h.tick().await, fast);
+    }
+    h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
+    h.tick().await;
+    assert_eq!(h.auto_imports().len(), 3);
+}

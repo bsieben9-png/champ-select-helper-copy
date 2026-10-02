@@ -13,8 +13,12 @@ use crate::AppState;
 
 /// How often to look for the client while it isn't running.
 const DISCOVER_INTERVAL: Duration = Duration::from_secs(3);
-/// How often to poll status / champ select while connected.
+/// How often to poll status / champ select while connected, in or close to
+/// champ select (lobby, queue, ready check).
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// How often to poll in phases far from champ select (home screen, in game,
+/// end of game): one cheap gameflow-phase request, nothing else.
+const IDLE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// Forget the once-per-champ-select import only after this many polls in a
 /// row outside champ select. A single error reply (phase 503 → "None", or a
 /// session 404) must not count as "left champ select", or the next poll would
@@ -94,11 +98,18 @@ impl Watcher {
             }
         };
         let in_champ_select = status.phase == "ChampSelect";
+        let near_champ_select = near_champ_select(&status.phase);
         set_status(app, &state, status).await;
 
         if !in_champ_select {
             self.left_champ_select(app, &state).await;
-            return POLL_INTERVAL;
+            // Stay fast right after champ select too, so a blip or a dodge
+            // is counted (LEAVE_POLLS) within seconds.
+            return if near_champ_select || self.polls_outside < LEAVE_POLLS {
+                POLL_INTERVAL
+            } else {
+                IDLE_POLL_INTERVAL
+            };
         }
 
         self.load_roles(&state).await;
@@ -111,7 +122,7 @@ impl Watcher {
                 } else {
                     // Session 404 while the phase still says ChampSelect:
                     // treat as transient, never as a new champ select.
-                    self.polls_outside += 1;
+                    self.polls_outside = self.polls_outside.saturating_add(1);
                     if self.polls_outside >= LEAVE_POLLS {
                         self.last_import = None;
                     }
@@ -145,7 +156,7 @@ impl Watcher {
     /// next champ select (e.g. after a dodge) imports again.
     async fn left_champ_select<R: Runtime>(&mut self, app: &AppHandle<R>, state: &AppState) {
         set_champ_select(app, state, ChampSelectState::default()).await;
-        self.polls_outside += 1;
+        self.polls_outside = self.polls_outside.saturating_add(1);
         if self.polls_outside >= LEAVE_POLLS {
             self.last_import = None;
         }
@@ -273,6 +284,16 @@ fn discover() -> Option<LcuClient> {
         return None;
     }
     LcuClient::discover()
+}
+
+/// Gameflow phases from which champ select can start within seconds. Every
+/// other phase ("None" = home screen, "InProgress", "EndOfGame", …) is polled
+/// at `IDLE_POLL_INTERVAL`.
+fn near_champ_select(phase: &str) -> bool {
+    matches!(
+        phase,
+        "Lobby" | "Matchmaking" | "ReadyCheck" | "CheckedIntoTournament" | "ChampSelect"
+    )
 }
 
 /// Should the locked-in champion be auto-imported now, given what was

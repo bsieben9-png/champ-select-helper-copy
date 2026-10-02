@@ -25,6 +25,16 @@ engineered u.gg data formats.
 - Rune pages / item sets the app creates are prefixed `CSH: ` — only ever modify/delete those.
 - Keep it lightweight: no heavy UI frameworks, no extra runtime deps without reason.
 
+## Ideas for later (not planned)
+
+- **Multi-source compare** (pipe dream): adapters for Lolalytics / OP.GG / League of Graphs
+  converted into the same `Build` type; "consensus" view with per-site agreement dots and
+  game-weighted win rates (don't add games across sites — they share Riot's match data).
+- **Patch-day fallback**: if the newest patch has too few games for a champion, use the
+  previous patch until the sample grows.
+- **Own scoring**: "highest win rate" option for items/runes with a minimum-games filter,
+  shown alongside u.gg's pick.
+
 ## Status / where we left off
 
 Update this section at the end of every work session so work can continue

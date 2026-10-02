@@ -35,4 +35,10 @@ on another machine (PC ⇄ cloud).
 - [ ] League client connection + import + auto-import (`lcu.rs`, `watcher.rs`)
 - [ ] UI (`src/`)
 - [ ] Windows CI build + README
-- [ ] ARAM Mayhem data (u.gg has it, file location not found yet — page is server-rendered)
+- [ ] ARAM Mayhem data (u.gg has it, file location not found yet — page is server-rendered).
+      Leads: u.gg queue key `aram_mayhem` (LCU queue 2400) / `aram_mayhem_classic` (2450);
+      `overview/{patch}/aram_mayhem/...` returns 403. u.gg JS (`static.bigbrain.gg/lol/static/js/*.js`)
+      mentions `champion_overview_aram_mayhem`, `aram-mayhem-augment-manifest-{patch}.json`,
+      augment icons `static.bigbrain.gg/cdragon-custom/{patch}/augments/{id}.webp`. Next step: load
+      `https://u.gg/lol/champions/aram-mayhem/yorick-aram-mayhem` in a real browser and search the
+      server-rendered HTML for the stats URL. Until then ARAM Mayhem falls back to normal ARAM data.

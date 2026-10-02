@@ -1219,18 +1219,17 @@ async fn trade_while_the_build_loads_imports_nothing() {
     h.poll().await;
     h.ugg().set_stalled(BUILD_FILES, false);
     h.settle().await;
-    h.ticks(3).await;
-    h.watcher.expire_import_retry();
-    h.ticks(2).await;
+    h.ticks(5).await;
     assert!(h.writes().is_empty(), "{:?}", h.writes());
     assert!(h.auto_imports().is_empty());
 }
 
-/// u.gg has no build at lock-in: nothing written, retried once
-/// `IMPORT_RETRY` has passed (not before), then imported exactly once.
+/// u.gg has no build at lock-in: nothing written, the user is told, and it
+/// is NEVER retried later (owner rule: one auto-import chance, at lock-in),
+/// even once u.gg is back.
 #[tokio::test]
-async fn failed_build_fetch_is_retried_later() {
-    let mut h = in_lobby("e2e-retry").await;
+async fn failed_build_fetch_is_never_retried() {
+    let mut h = in_lobby("e2e-no-retry").await;
     let overview = h.dir.join("ugg").join(cache_file_name(&format!(
         "{UGG}/overview/16_19/ranked_solo_5x5/83/1.5.0.json"
     )));
@@ -1239,19 +1238,16 @@ async fn failed_build_fetch_is_retried_later() {
     h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
     h.ticks(3).await;
     assert!(h.writes().is_empty());
-    assert!(h.auto_imports().is_empty());
+    let imports = h.auto_imports();
+    assert_eq!(imports.len(), 1, "the user is told: {imports:?}");
+    assert!(!imports[0].result.runes && !imports[0].result.item_set);
+    assert!(imports[0].result.messages[0].contains("Press Import"));
 
-    // u.gg is back.
+    // u.gg is back: still nothing, however long we wait.
     std::fs::write(&overview, saved).unwrap();
     h.ugg().clear_memory();
-    h.ticks(2).await;
-    assert!(h.writes().is_empty(), "retried too early");
-    h.watcher.expire_import_retry();
-    h.ticks(3).await;
-    assert_eq!(h.auto_imports().len(), 1);
-    assert_eq!(h.writes().len(), 3, "{:?}", h.writes());
-    h.watcher.expire_import_retry();
-    h.ticks(2).await;
+    h.ticks(10).await;
+    assert!(h.writes().is_empty(), "retried: {:?}", h.writes());
     assert_eq!(h.auto_imports().len(), 1);
 }
 

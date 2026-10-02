@@ -33,8 +33,6 @@ const POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// ChampSelect — else the next poll would re-import over the user's edits.
 /// A real dodge/requeue takes far longer.
 const LEAVE_POLLS: u32 = 3;
-/// Retry a failed auto-import (e.g. u.gg unreachable) after this long.
-const IMPORT_RETRY: Duration = Duration::from_secs(15);
 /// Retry loading u.gg primary roles after this long when it failed.
 const ROLES_RETRY: Duration = Duration::from_secs(30);
 /// How often to check whether u.gg moved to a new patch (→ reload roles).
@@ -101,11 +99,9 @@ struct LastImport {
     champion_id: u32,
     /// Which champ select (`lcu::session_identity`), if the client says.
     identity: Option<String>,
-    at: Instant,
-    /// True once this pick is dealt with (imported, or auto-import was off).
-    /// False when nothing was written (no build from u.gg, the client didn't
-    /// answer) → retry after `IMPORT_RETRY`.
-    done: bool,
+    // Once set (attempt started, imported, auto-import off at lock-in, or the
+    // one attempt failed) this pick is dealt with. Owner rule: ONE auto-import
+    // chance, at lock-in; never retried later; the user can press Import.
 }
 
 struct ImportTask {
@@ -136,8 +132,6 @@ impl Watcher {
         let last_import = Marker::load(&marker_path).map(|m| LastImport {
             champion_id: m.champion_id,
             identity: Some(m.champ_select),
-            at: Instant::now(),
-            done: true,
         });
         Watcher {
             last_import,
@@ -230,14 +224,6 @@ impl Watcher {
     #[cfg(test)]
     pub(crate) fn expire_roles_check(&mut self) {
         self.roles.checked = None;
-    }
-
-    /// Tests: pretend `IMPORT_RETRY` has passed since the last attempt.
-    #[cfg(test)]
-    pub(crate) fn expire_import_retry(&mut self) {
-        if let Some(last) = &mut self.last_import {
-            last.at = last.at.checked_sub(IMPORT_RETRY).unwrap_or(last.at);
-        }
     }
 
     /// Take in the results of background tasks that have finished.
@@ -405,12 +391,7 @@ impl Watcher {
         let (Some(champion_id), Some(queue)) = (cs.my_champion_id, cs.queue) else {
             return;
         };
-        if !import_due(
-            self.last_import.as_ref(),
-            champion_id,
-            queue,
-            Instant::now(),
-        ) {
+        if !import_due(self.last_import.as_ref(), champion_id, queue) {
             return;
         }
         // The lane opponent is guessed from the roles: give their first load
@@ -445,8 +426,6 @@ impl Watcher {
         self.last_import = Some(LastImport {
             champion_id,
             identity: identity.clone(),
-            at: Instant::now(),
-            done: false,
         });
         self.import_task = Some(ImportTask {
             champion_id,
@@ -474,24 +453,19 @@ impl Watcher {
                 self.log("Auto-import skipped: my champion changed first".into());
                 true
             }
+            // One chance only: a failed attempt is never retried (the user
+            // was told and can press Import).
             Ok(Outcome::NothingWritten(why)) => {
                 self.log(format!("Auto-import: {why}"));
-                false
+                true
             }
             Err(e) => {
                 self.log(format!("Auto-import task failed: {e}"));
-                false
+                true
             }
         };
         if done {
             self.import_done(task.champion_id, task.identity.clone());
-        } else {
-            self.last_import = Some(LastImport {
-                champion_id: task.champion_id,
-                identity: task.identity.clone(),
-                at: Instant::now(),
-                done: false,
-            });
         }
     }
 
@@ -511,8 +485,6 @@ impl Watcher {
         self.last_import = Some(LastImport {
             champion_id,
             identity,
-            at: Instant::now(),
-            done: true,
         });
     }
 
@@ -558,14 +530,19 @@ impl<R: Runtime> ImportJob<R> {
         {
             Ok(build) => build,
             Err(e) => {
+                self.notify_failed("Couldn't load the recommended build");
                 return Outcome::NothingWritten(format!(
                     "no build for champion {}: {e:#}",
                     self.champion_id
-                ))
+                ));
             }
         };
         let static_data = state.static_data().await.ok();
         if let Err(outcome) = self.still_current().await {
+            if matches!(&outcome, Outcome::NothingWritten(why) if why.starts_with("League client"))
+            {
+                self.notify_failed("The League client didn't answer");
+            }
             return outcome;
         }
         let result = self
@@ -581,6 +558,23 @@ impl<R: Runtime> ImportJob<R> {
             eprintln!("[watcher] emit auto-imported failed: {e}");
         }
         Outcome::Imported
+    }
+
+    /// Tell the UI the one auto-import attempt failed (nothing was written).
+    fn notify_failed(&self, what: &str) {
+        let event = AutoImportEvent {
+            champion_id: self.champion_id,
+            opponent_id: self.opponent_id,
+            result: ImportResult {
+                messages: vec![format!(
+                    "{what}, so nothing was imported. Press Import to try again."
+                )],
+                ..ImportResult::default()
+            },
+        };
+        if let Err(e) = self.app.emit("auto-imported", &event) {
+            eprintln!("[watcher] emit auto-imported failed: {e}");
+        }
     }
 
     /// Fetching the build can take a while: is this still the champ select
@@ -620,15 +614,15 @@ fn discover() -> Option<LcuClient> {
 
 /// Should the locked-in champion be auto-imported now, given what was
 /// already imported in this champ select?
-fn import_due(last: Option<&LastImport>, champion_id: u32, queue: Queue, now: Instant) -> bool {
+fn import_due(last: Option<&LastImport>, champion_id: u32, queue: Queue) -> bool {
     let Some(last) = last else { return true };
     // Draft/blind: once per champ select. ARAM: once per champion.
     let same_pick = !queue.is_aram() || last.champion_id == champion_id;
     if !same_pick {
         return true;
     }
-    // Retry only when nothing was imported (e.g. fetching the build failed).
-    !last.done && now.saturating_duration_since(last.at) >= IMPORT_RETRY
+    // Already attempted (or in flight) for this pick: one chance only.
+    false
 }
 
 /// "This champ select was auto-imported (or auto-import was off at lock-in)",
@@ -695,45 +689,38 @@ async fn set_champ_select<R: Runtime>(app: &AppHandle<R>, state: &AppState, cs: 
 mod tests {
     use super::*;
 
-    fn last(champion_id: u32, done: bool, ago: Duration) -> LastImport {
+    fn last(champion_id: u32) -> LastImport {
         LastImport {
             champion_id,
             identity: None,
-            at: Instant::now() - ago,
-            done,
         }
     }
 
     #[test]
     fn first_lock_imports() {
-        assert!(import_due(None, 83, Queue::RankedSolo, Instant::now()));
-        assert!(import_due(None, 83, Queue::Aram, Instant::now()));
+        assert!(import_due(None, 83, Queue::RankedSolo));
+        assert!(import_due(None, 83, Queue::Aram));
     }
 
     #[test]
     fn draft_imports_once_per_champ_select() {
-        let now = Instant::now();
-        let done = last(83, true, Duration::from_secs(60));
-        assert!(!import_due(Some(&done), 83, Queue::RankedSolo, now));
+        let done = last(83);
+        assert!(!import_due(Some(&done), 83, Queue::RankedSolo));
         // Even if the champion changes later (trade), no re-import.
-        assert!(!import_due(Some(&done), 86, Queue::RankedSolo, now));
+        assert!(!import_due(Some(&done), 86, Queue::RankedSolo));
     }
 
     #[test]
     fn aram_imports_once_per_champion() {
-        let now = Instant::now();
-        let done = last(83, true, Duration::from_secs(1));
-        assert!(!import_due(Some(&done), 83, Queue::Aram, now));
-        assert!(import_due(Some(&done), 22, Queue::Aram, now));
+        let done = last(83);
+        assert!(!import_due(Some(&done), 83, Queue::Aram));
+        assert!(import_due(Some(&done), 22, Queue::Aram));
     }
 
     #[test]
-    fn failed_build_fetch_retries_after_delay() {
-        let now = Instant::now();
-        let recent = last(83, false, Duration::from_secs(2));
-        assert!(!import_due(Some(&recent), 83, Queue::RankedSolo, now));
-        let old = last(83, false, IMPORT_RETRY + Duration::from_secs(1));
-        assert!(import_due(Some(&old), 83, Queue::RankedSolo, now));
+    fn a_failed_attempt_is_never_retried() {
+        // Attempted (in flight, imported or failed): no second chance.
+        assert!(!import_due(Some(&last(83)), 83, Queue::RankedSolo));
     }
 
     #[test]

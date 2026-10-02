@@ -15,7 +15,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Stats | **Emerald+**, **World** by default; both changeable in Settings. |
 | Counters | Highest win rate vs the enemy in that role, ignoring matchups below a **minimum games** threshold. |
 | Jungle / Support | **Role vs role** (jungle vs enemy jungler, support vs enemy support). |
-| Modes | Ranked Solo/Duo, Normal Draft/Flex (use ranked solo data), ARAM. **ARAM Mayhem**: later (data source not located yet; fall back to ARAM). |
+| Modes | Ranked Solo/Duo, Normal Draft/Flex (use ranked solo data), and **ARAM Mayhem** (the only ARAM mode the owner plays). Mayhem means builds **plus an augment ranking**: augments are picked in-game, so the app keeps the Mayhem build and augments visible during the game. Normal ARAM is low priority. |
 | Items | Full build (starting, core, 4th/5th/6th options, skill order) **plus** push an in-game **item set** to the client. |
 | Look | League-style dark: deep navy, gold accents, champion/rune/item icons. |
 | Extras | **My champion pool** (counters from your pool shown first/highlighted); **Manual lookup** mode (works with League closed). |

@@ -93,6 +93,14 @@ impl Queue {
     }
 }
 
+/// Where stats come from. Serialized lowercase ("ugg"). Only u.gg for now.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    #[default]
+    Ugg,
+}
+
 /// Which summoner-spell slot Flash should go in.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -123,6 +131,9 @@ pub struct Settings {
     pub champion_pool: Vec<u32>,
     /// Only suggest counters from the champion pool.
     pub counters_pool_only: bool,
+    /// Stats source.
+    #[serde(default)]
+    pub source: Source,
 }
 
 impl Default for Settings {
@@ -138,6 +149,7 @@ impl Default for Settings {
             flash_slot: FlashSlot::Auto,
             champion_pool: Vec::new(),
             counters_pool_only: false,
+            source: Source::Ugg,
         }
     }
 }
@@ -177,6 +189,8 @@ pub struct Spells {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Build {
+    /// Where the stats came from.
+    pub source: Source,
     pub champion_id: u32,
     /// None for ARAM.
     pub role: Option<Role>,
@@ -224,6 +238,20 @@ pub struct Counter {
     pub games: u32,
     /// The counter's win rate vs the enemy (0..1).
     pub win_rate: f64,
+    pub in_pool: bool,
+}
+
+/// One champion in a role's tier list (used for blind / first pick).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TierEntry {
+    pub champion_id: u32,
+    pub games: u32,
+    /// 0..1
+    pub win_rate: f64,
+    /// Share of matches in which this champion was picked in this role (0..1).
+    pub pick_rate: f64,
+    /// Share of matches in which this champion was banned, any role (0..1; 0 if unknown).
+    pub ban_rate: f64,
     pub in_pool: bool,
 }
 

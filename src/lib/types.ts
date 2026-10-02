@@ -11,6 +11,9 @@ export type Queue =
   | "aram"
   | "aram_mayhem";
 
+/** Where stats come from (only u.gg for now). */
+export type Source = "ugg";
+
 export type FlashSlot = "auto" | "d" | "f";
 
 export interface Settings {
@@ -26,6 +29,7 @@ export interface Settings {
   flash_slot: FlashSlot;
   champion_pool: number[];
   counters_pool_only: boolean;
+  source: Source;
 }
 
 export interface RunePage {
@@ -56,6 +60,7 @@ export interface Spells {
 }
 
 export interface Build {
+  source: Source;
   champion_id: number;
   role: Role | null;
   opponent_id: number | null;
@@ -89,6 +94,19 @@ export interface Counter {
   champion_id: number;
   games: number;
   win_rate: number;
+  in_pool: boolean;
+}
+
+/** One champion in a role's tier list (blind / first pick). */
+export interface TierEntry {
+  champion_id: number;
+  games: number;
+  /** 0..1 */
+  win_rate: number;
+  /** Share of matches with this champion picked in this role (0..1). */
+  pick_rate: number;
+  /** Share of matches with this champion banned (0..1; 0 if unknown). */
+  ban_rate: number;
   in_pool: boolean;
 }
 

@@ -1,4 +1,5 @@
 mod ddragon;
+mod http_cache;
 mod lcu;
 pub mod model;
 mod settings;
@@ -81,6 +82,20 @@ async fn get_counters(
 }
 
 #[tauri::command]
+async fn get_tier_list(
+    state: State<'_, AppState>,
+    role: Role,
+    queue: Queue,
+) -> CmdResult<Vec<TierEntry>> {
+    let settings = state.settings.read().await.clone();
+    state
+        .ugg
+        .tier_list(role, queue, &settings)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
 async fn get_matchups(
     state: State<'_, AppState>,
     champion_id: u32,
@@ -157,6 +172,7 @@ pub fn run() {
             get_static_data,
             get_build,
             get_counters,
+            get_tier_list,
             get_matchups,
             get_settings,
             save_settings,

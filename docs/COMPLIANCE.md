@@ -48,8 +48,8 @@ has drawn publicly, and does strictly less than the big approved apps.
 | Riot prohibits | What Champ Select Helper does |
 |---|---|
 | "Exposing information that's intentionally obfuscated" | Never reads or shows other players' names, Riot IDs, PUUIDs, summoner ids, ranks or match history. Ranked champ select hides teammates' names; the app doesn't try to recover them. It shows only what the champ select screen shows you: your own pick and role, allies' picks/hovers, **locked** enemy champions, bans. Enemy *roles* are a guess from champion statistics (which lane each champion is usually played in), not from any hidden data; the UI marks them as guesses. Your own name (connection pill) comes from `/lol-summoner/v1/current-summoner` (you). |
-| "Taking actions on your behalf (botting or scripting)" | No queue accept, pick, ban, lock-in, dodge, chat, or spell change, ever. It writes only a rune page + an item set: **once** when you lock in (Auto-import, can be turned off) or when you press Import. See the gray area above. |
-| "Drawing conclusions for you during gameplay (ie we want to see you play the game first, then analyze and reflect later!)" | Nothing runs during the game except a cheap "which screen is the client on?" check to the client (not to the game). The app reads no live game data at all (no Live Client Data API, port 2999, no memory, no screen). In ARAM Mayhem the app keeps showing the build and u.gg's **static** augment ranking for your champion (the same list u.gg's website shows), loaded before the game. It doesn't know which augments you're offered and doesn't react to the game. Minor gray area: if you want to be strict, look at the augment list before the game starts. |
+| "Taking actions on your behalf (botting or scripting)" | No queue accept, pick, ban, lock-in, dodge, chat, or spell change, ever. It writes only a rune page + an item set: **one attempt** when you lock in (Auto-import, can be turned off; never retried, a failure only tells you to press Import, commit 6e411c7) or when you press Import. See the gray area above. |
+| "Drawing conclusions for you during gameplay (ie we want to see you play the game first, then analyze and reflect later!)" | Nothing runs during the game except a cheap "which screen is the client on?" check to the client (not to the game), every 5 s. The app reads no live game data at all (no Live Client Data API, port 2999, no memory, no screen) and shows nothing new during the game. ARAM / ARAM Mayhem support (and with it the augment list) is being removed by owner decision (code kept on branch `saved/aram-mayhem`); supported modes are Ranked and Normals. |
 | "Altering your field of intelligence (zoomhacks or global ult alerts)" | Nothing of the kind: no overlay, no timers, no cooldown tracking, no in-game alerts. |
 | Skin hacks / unauthorized services | None. |
 
@@ -84,13 +84,15 @@ has drawn publicly, and does strictly less than the big approved apps.
 - "Products cannot identify or analyze players who are deliberately hidden by the game."
   The app reads no player identities.
 - "Products cannot display win rates for Augments or Arena Mode items. This applies to all
-  websites, applications and overlays." Verified: the ARAM Mayhem augment panel
-  (`src/lib/components/Augments.svelte`, fixed on main in b59c3a2) shows only u.gg's order
-  (rank number, icon, name). The backend never fills augment stats (`games`, `win_rate`,
-  `pick_rate` are always 0 in `src-tauri/src/ugg.rs`, because u.gg publishes none), no other
-  component (tooltips, Lookup, item set titles) shows augment numbers, and Arena (queues
-  1700/1710) isn't supported at all (`Queue::from_lcu_queue_id` returns nothing, so no
-  Arena data is fetched or shown).
+  websites, applications and overlays." The app shows **no augments at all**: ARAM / ARAM
+  Mayhem support is being removed (owner decision, 2026-10-02; code kept on branch
+  `saved/aram-mayhem`). Before that, verified on main: the augment panel
+  (`src/lib/components/Augments.svelte`, fixed in b59c3a2) showed only u.gg's order (rank,
+  icon, name), the backend never filled augment stats (`games`, `win_rate`, `pick_rate`
+  always 0 in `src-tauri/src/ugg.rs`; u.gg publishes none) and no other component showed
+  augment numbers. If ARAM Mayhem ever comes back from that branch, keep it ranking-only.
+  Arena (queues 1700/1710) isn't supported at all (`Queue::from_lcu_queue_id` maps it to
+  nothing, so no Arena data is fetched or shown).
 
 ### Champ select anonymity (patch 12.22, Oct 2022, still in force)
 
@@ -149,7 +151,7 @@ authenticated with the lockfile password. Source: `src-tauri/src/lcu.rs`.
 | GET | `/lol-gameflow/v1/gameflow-phase` | every poll (see "Request rate") | Which screen the client is on (home, lobby, champ select, in game…) |
 | GET | `/lol-summoner/v1/current-summoner` | once per client connection, and at each import | **Your own** display name and summoner id (the item-set path needs it) |
 | GET | `/lol-champ-select/v1/session` | every poll during champ select only | Your pick/role, allies' picks, locked enemy picks, bans |
-| GET | `/lol-gameflow/v1/session` | every poll during champ select only | Queue id (ranked / normal / ARAM Mayhem) |
+| GET | `/lol-gameflow/v1/session` | every poll during champ select only | Queue id (ranked / normal) |
 | GET | `/lol-perks/v1/pages` | at import | Find the app's old `CSH:` page(s) |
 | DELETE | `/lol-perks/v1/pages/{id}` | at import | Delete the app's **own** old `CSH:` page. A page of yours only after you confirmed it in the "rune pages full" dialog. |
 | POST | `/lol-perks/v1/pages` | at import | Create the `CSH: …` rune page (or put your page back if replacing it failed) |
@@ -188,8 +190,7 @@ at 1 s so a dodge is noticed and the next champ select imports again.
 ### During the game
 
 Only `GET /lol-gameflow/v1/gameflow-phase` to the **client** (not the game), every 5 s. No
-game data is read; the ARAM Mayhem augment list is u.gg's static per-champion ranking
-downloaded before the game.
+game data is read and nothing new is shown during the game.
 
 ## Compared with the mainstream apps
 
@@ -246,9 +247,10 @@ Product name: Champ Select Helper
 
 Short description:
 A personal, non-commercial Windows desktop tool for League of Legends champion
-select. It shows public aggregate build statistics (runes, items, skill order,
-summoner spell recommendation, counter picks) for my champion and lane matchup,
-and can save a rune page and an item set into my League client.
+select (Ranked and Normal games). It shows public aggregate build statistics
+(runes, items, skill order, summoner spell recommendation, counter picks) for my
+champion and lane matchup, and can save a rune page and an item set into my
+League client.
 
 Product type: Personal project, for my own use (no public distribution, no ads,
 no payments, no accounts, no data collection). Not affiliated with Riot.
@@ -262,21 +264,22 @@ How it works:
   Riot's product_settings.yaml). It does not inspect any process.
 - Uses only information shown in the client: my own pick and assigned role,
   allies' picks, locked enemy champions and bans. It never reads, stores or
-  displays other players' names, Riot IDs, PUUIDs, ranks or match history, and
-  never shows win rates for augments or Arena items.
+  displays other players' names, Riot IDs, PUUIDs, ranks or match history. No
+  augment or Arena data at all.
 - Never accepts queues, picks, bans, locks in, dodges, or changes summoner
   spells. The only writes are one rune page and one item set, both named
-  "CSH: ...", once when I lock in (can be turned off) or when I press Import.
-  It only replaces its own "CSH:" pages/sets, and only replaces one of my own
-  rune pages after I confirm it in a dialog (when all rune page slots are full).
-- Polls the local client about once per second in champion select, slower
-  otherwise.
+  "CSH: ...": a single attempt when I lock in (can be turned off, never
+  retried) or when I press Import. It only replaces its own "CSH:" pages/sets,
+  and only replaces one of my own rune pages after I confirm it in a dialog
+  (when all rune page slots are full).
+- Polls the local client once per second in and right before champion select,
+  every 5 seconds otherwise (one gameflow-phase request); nothing during the
+  game beyond that.
 
 Data sources:
 - League Client API (local, 127.0.0.1), endpoints listed below
 - Riot Data Dragon (champion/item/rune/spell names and icons)
-- u.gg public statistics files (aggregate builds, matchups, tier lists,
-  ARAM Mayhem augment order)
+- u.gg public statistics files (aggregate builds, matchups, tier lists)
 
 League Client API endpoints used:
 - GET    /lol-gameflow/v1/gameflow-phase              which screen the client is on
@@ -324,6 +327,9 @@ must keep changing only the slot's `perks` field (never the champion, skin or sp
 - README: no longer claims the import sets summoner spells; no longer tells you to run the
   app as administrator; new "Will this get me banned?" section.
 - Not changed (owner decision): the auto-import default.
+- Done elsewhere (main, same day, owner decisions): augment win rates never shown
+  (b59c3a2), then ARAM / ARAM Mayhem removed entirely (saved on `saved/aram-mayhem`);
+  auto-import is exactly one attempt at lock-in, never retried (6e411c7).
 
 ## Sources (checked 2026-10-02)
 

@@ -64,21 +64,33 @@ has drawn publicly, and does strictly less than the big approved apps.
 | "Products cannot de-anonymize players who cannot reasonably be identified from visible information." | Reads no other player identity at all (see above). |
 | "Products cannot create alternatives for official skill ranking systems … MMR or ELO calculators." | No MMR/ELO/player ratings. |
 | Legal boilerplate ("[Your product] isn't endorsed by Riot Games …") must be shown in a readily visible location | In the README, the release notes and the app's Settings page (full text). |
-| Products using the League Client API should be registered on the Developer Portal | **Not registered.** This is a personal tool, not a public product. If the owner ever shares it publicly, register it first (owner decision, see "Open decisions"). |
+| "All products must be registered in, and audited by Riot Games through the Developer Portal" | **Not registered yet.** Ready-to-paste registration text: see [Registering with Riot](#registering-with-riot). This is the one formal gap. |
 
 ### Riot Developer Portal: League of Legends docs
 
 <https://developer.riotgames.com/docs/lol>
 
 - League Client API: "This service is not officially supported for use with third party
-  applications" (no guarantees of uptime or change notices; no ban language). Riot asks
-  apps using it to tell them ("we need to know about it"), same registration point as above.
+  applications" (no guarantees of uptime or change notices; no ban language), and:
+  "Whether you're combining the Riot Games API and League Client API, or doing something by
+  only using the League Client endpoints, we need to know about it. Either create a new
+  application or leave a note on your existing application in the Developer Portal. We need
+  to know which endpoints you're using and how you're using them…" See
+  [Registering with Riot](#registering-with-riot).
 - Game integrity: "Products must not use or incorporate information not present in the
   game client that would give players a competitive edge (e.g., automatically or manually
   allowing tracking enemy ultimate cooldowns)" (the March 2025 enemy-ult-timer rule).
   The app has no timers or cooldown tracking of any kind.
 - "Products cannot identify or analyze players who are deliberately hidden by the game."
   The app reads no player identities.
+- "Products cannot display win rates for Augments or Arena Mode items. This applies to all
+  websites, applications and overlays." Verified: the ARAM Mayhem augment panel
+  (`src/lib/components/Augments.svelte`, fixed on main in b59c3a2) shows only u.gg's order
+  (rank number, icon, name). The backend never fills augment stats (`games`, `win_rate`,
+  `pick_rate` are always 0 in `src-tauri/src/ugg.rs`, because u.gg publishes none), no other
+  component (tooltips, Lookup, item set titles) shows augment numbers, and Arena (queues
+  1700/1710) isn't supported at all (`Queue::from_lcu_queue_id` returns nothing, so no
+  Arena data is fetched or shown).
 
 ### Champ select anonymity (patch 12.22, Oct 2022, still in force)
 
@@ -191,9 +203,10 @@ registration.
 
 ## Residual risks
 
-1. **Not registered with Riot.** Riot's policies ask LCU apps to register. Riot has not
-   banned players for personal LCU tools that only import runes, but it reserves the right.
-   Riot's own words: approved apps built on the official API "should rarely have an issue".
+1. **Not registered with Riot (yet).** Riot's policies require registration ("All products
+   must be registered in, and audited by Riot Games through the Developer Portal"). Riot's
+   own words: approved apps built on the official API "should rarely have an issue". See
+   [Registering with Riot](#registering-with-riot).
 2. **Auto-import is an automatic action** (see the gray area). Turning it off makes every
    write a direct result of your click.
 3. **The LCU is unsupported.** Riot can change it any time; the app would then stop
@@ -203,10 +216,91 @@ registration.
 5. **Korea.** Rules on third-party programs are stricter on the Korean server; this review
    covers the global rules only.
 
+## Registering with Riot
+
+Riot's policies say every product must be registered and audited on the Developer Portal,
+and LCU apps must tell Riot which client endpoints they use. Registration is free and is
+the one formal gap. Steps:
+
+1. Sign in at <https://developer.riotgames.com> with your Riot account.
+2. Click **Register Product** and choose **Personal** ("for products that are intended for
+   just the developer or a small private community"; the app needs no API key, since it
+   uses only the local client and the public Data Dragon).
+3. Paste the text below into the form (adjust anything that changed), then complete the
+   verification step Riot asks for.
+4. If Riot replies with concerns in the portal, the usual fix is a setting (for example
+   turning auto-import off by default). Riot's portal is also where any later change has to
+   be "audited through the product's page".
+
+**Ready-to-paste text** (plain text, keep the endpoint list in sync with
+[the table above](#every-league-client-call-the-app-makes)):
+
+```text
+Product name: Champ Select Helper
+
+Short description:
+A personal, non-commercial Windows desktop tool for League of Legends champion
+select. It shows public aggregate build statistics (runes, items, skill order,
+summoner spell recommendation, counter picks) for my champion and lane matchup,
+and can save a rune page and an item set into my League client.
+
+Product type: Personal project, for my own use (no public distribution, no ads,
+no payments, no accounts, no data collection). Not affiliated with Riot.
+
+How it works:
+- Runs as a normal desktop app next to the League client. It never touches the
+  game process: no memory reading or writing, no injection, no drivers, no
+  overlay, no keyboard/mouse automation, no screen reading, no Live Client Data
+  API.
+- Finds the client only by reading League's lockfile (install folder taken from
+  Riot's product_settings.yaml). It does not inspect any process.
+- Uses only information shown in the client: my own pick and assigned role,
+  allies' picks, locked enemy champions and bans. It never reads, stores or
+  displays other players' names, Riot IDs, PUUIDs, ranks or match history, and
+  never shows win rates for augments or Arena items.
+- Never accepts queues, picks, bans, locks in, dodges, or changes summoner
+  spells. The only writes are one rune page and one item set, both named
+  "CSH: ...", once when I lock in (can be turned off) or when I press Import.
+  It only replaces its own "CSH:" pages/sets, and only replaces one of my own
+  rune pages after I confirm it in a dialog (when all rune page slots are full).
+- Polls the local client about once per second in champion select, slower
+  otherwise.
+
+Data sources:
+- League Client API (local, 127.0.0.1), endpoints listed below
+- Riot Data Dragon (champion/item/rune/spell names and icons)
+- u.gg public statistics files (aggregate builds, matchups, tier lists,
+  ARAM Mayhem augment order)
+
+League Client API endpoints used:
+- GET    /lol-gameflow/v1/gameflow-phase              which screen the client is on
+- GET    /lol-gameflow/v1/session                     queue id during champ select
+- GET    /lol-champ-select/v1/session                 my pick/role, picks, bans
+- GET    /lol-summoner/v1/current-summoner            my own name and summoner id
+- GET    /lol-perks/v1/pages                          find the app's own "CSH:" page
+- GET    /lol-perks/v1/inventory                      check if rune page slots are full
+- POST   /lol-perks/v1/pages                          create the "CSH:" rune page
+- DELETE /lol-perks/v1/pages/{id}                     remove the app's old "CSH:" page
+                                                      (or my page, only after I confirm)
+- GET    /lol-item-sets/v1/item-sets/{summonerId}/sets   read my item sets
+- PUT    /lol-item-sets/v1/item-sets/{summonerId}/sets   save them with the "CSH:" set
+
+Legal: "Champ Select Helper isn't endorsed by Riot Games and doesn't reflect the
+views or opinions of Riot Games or anyone officially involved in producing or
+managing Riot Games properties. Riot Games, and all associated properties are
+trademarks or registered trademarks of Riot Games, Inc." is shown in the app.
+```
+
+Pending branches that add League client calls (e.g. `wip/modes`, which writes the rune
+choice of a Swiftplay/Quickplay lobby slot via `GET`/`PUT
+/lol-lobby/v1/lobby/members/localMember/player-slots` and reads `GET /lol-lobby/v2/lobby`)
+must be added to this list and to the endpoint table when they are merged. That slot write
+must keep changing only the slot's `perks` field (never the champion, skin or spells).
+
 ## Open decisions for the owner
 
-- Auto-import default (on now). Off = no automatic actions at all.
-- Register the app on the Riot Developer Portal if it's ever shared beyond personal use.
+- **Auto-import default** (on now). Off = the app never acts without a click from you.
+- **Register the app** on the Developer Portal (text above). Strongly recommended.
 
 ## Changes made in this review
 

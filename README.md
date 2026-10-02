@@ -47,26 +47,21 @@ icons come from Riot's official Data Dragon.
 You need Windows 10 or 11. You also need to be **signed in to GitHub** to
 download, because this repository is private.
 
-### Option 1: from a Release (when there is one)
+The app is **portable**: a single `.exe`, no installer. Save it anywhere
+(for example your Desktop) and double-click it.
 
-1. Open the repository on GitHub and click **Releases** on the right side.
-2. Under the newest release, open **Assets** and download the file ending in
-   **`_x64-setup.exe`**.
-3. Run it and follow the installer.
+### Option 1: from a Release (recommended)
+
+1. Open **https://github.com/bsieben9-png/champ-select-helper/releases/latest**.
+2. Under **Assets**, download **`ChampSelectHelper-vX.Y.Z-portable.exe`**.
+3. Double-click it.
 
 ### Option 2: the latest build (made automatically after every change)
 
 1. Open the repository on GitHub and click the **Actions** tab at the top.
 2. In the list on the left click **Build**, then click the newest run that
    has a **green check mark**.
-3. Scroll down to **Artifacts** at the bottom of the page and click one of:
-   - **champ-select-helper-windows**: a `.zip` with the installers. Open the
-     zip (double-click it in Downloads), then run the file ending in
-     **`_x64-setup.exe`**. (The `.msi` is the same app in a different
-     installer format. You only need one of them.)
-   - **champ-select-helper-portable.exe**: the program on its own, with no
-     installation. Save it anywhere (for example your Desktop) and
-     double-click it.
+3. Scroll down to **Artifacts** and click **champ-select-helper-portable.exe**.
 4. Builds are kept for **14 days**. After that, run a newer one or use a
    Release.
 
@@ -181,7 +176,7 @@ everything works) automatically, so you can just say what you want.
 | `npm run dev` | Only the UI, in your web browser, with fake data (no Rust or League needed) |
 | `npm run check` | Check the UI code for mistakes |
 | `cd src-tauri` then `cargo test` | Run the backend tests |
-| `npm run tauri build` | Build the installers into `src-tauri\target\release\bundle\` |
+| `npm run tauri build -- --no-bundle` | Build the portable app: `src-tauri\target\release\champ-select-helper.exe` |
 
 ## Switching between your PC and the cloud
 

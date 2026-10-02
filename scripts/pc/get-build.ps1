@@ -14,11 +14,9 @@ if ($Local -or ($haveRust -and -not $Download)) {
     Write-Host "Building locally (this takes a while the first time)..." -ForegroundColor Yellow
     Set-Location $repo
     npm ci
-    npm run tauri build
+    npm run tauri build -- --no-bundle
     if ($LASTEXITCODE -ne 0) { throw "Local build failed." }
     Copy-Item "$repo\src-tauri\target\release\champ-select-helper.exe" $out
-    Get-ChildItem "$repo\src-tauri\target\release\bundle" -Recurse -Include *.exe, *.msi |
-        Copy-Item -Destination $out
 } else {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         throw "GitHub CLI not found. Run: winget install GitHub.cli   then: gh auth login"

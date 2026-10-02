@@ -612,12 +612,20 @@ enum Kind {
     Skip,
 }
 
+fn next_game_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(7212345678);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Builds `/lol-champ-select/v1/session` documents shaped like the real
 /// client's, step by step: planning intent → bans → hover → lock → enemy picks
 /// → trades → finalization.
 #[derive(Clone)]
 pub struct Draft {
     pub queue_id: i64,
+    /// `gameId`: every new champ select (`Draft::ranked()`, …) gets its own,
+    /// steps derived from it (`.hover()`, `.lock()`, …) keep it.
+    pub game_id: u64,
     pub local_cell: i64,
     kind: Kind,
     /// (cellId, assignedPosition, championId, championPickIntent)
@@ -645,6 +653,7 @@ impl Draft {
     pub fn with_queue(queue_id: i64) -> Draft {
         Draft {
             queue_id,
+            game_id: next_game_id(),
             local_cell: 2,
             kind: Kind::Draft,
             my_team: vec![
@@ -681,6 +690,7 @@ impl Draft {
     pub fn aram(queue_id: i64, my_champion: u32, bench: Vec<u32>) -> Draft {
         Draft {
             queue_id,
+            game_id: next_game_id(),
             local_cell: 7,
             kind: Kind::Aram,
             my_team: vec![
@@ -1000,10 +1010,10 @@ impl Draft {
             "chatDetails": {"mucJwtDto": {"channelClaim": "", "domain": "", "jwt": "", "targetRegion": ""}, "multiUserChatId": "", "multiUserChatPassword": ""},
             "counter": id,
             "disallowBanningTeammateHoveredChampions": false,
-            "gameId": 7212345678u64,
+            "gameId": self.game_id,
             "hasSimultaneousBans": self.kind == Kind::Draft,
             "hasSimultaneousPicks": self.kind != Kind::Draft,
-            "id": "8c1f0f2e-3c9a-4f0e-9a51-2b7d6c4e5f60",
+            "id": format!("8c1f0f2e-3c9a-4f0e-9a51-{:012x}", self.game_id),
             "isCustomGame": false,
             "isLegacyChampSelect": false,
             "isSpectating": false,

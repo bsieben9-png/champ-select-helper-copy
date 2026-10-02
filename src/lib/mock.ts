@@ -324,19 +324,19 @@ const AUGMENTS: [string, string, string][] = [
 
 function mockAugments(championId: number): AugmentOption[] {
   const r = rng(championId * 4099 + 17);
-  return AUGMENTS.map(([name, rarity, description], i) => {
-    const pick_rate = 0.02 + r() ** 1.5 * 0.3;
-    return {
-      id: 1000 + i,
-      name,
-      icon: "",
-      rarity,
-      description,
-      games: Math.round(40 + pick_rate * 9000),
-      win_rate: 0.47 + r() * 0.12,
-      pick_rate,
-    };
-  }).sort((a, b) => b.win_rate + b.pick_rate * 0.1 - (a.win_rate + a.pick_rate * 0.1));
+  // Like the real data: a ranking only (Riot policy forbids augment win rates).
+  const order = AUGMENTS.map((_, i) => ({ i, key: r() }));
+  const rank = new Map(order.map((o) => [o.i, o.key]));
+  return AUGMENTS.map(([name, rarity, description], i) => ({
+    id: 1000 + i,
+    name,
+    icon: "",
+    rarity,
+    description,
+    games: 0,
+    win_rate: 0,
+    pick_rate: 0,
+  })).sort((a, b) => rank.get(b.id - 1000)! - rank.get(a.id - 1000)!);
 }
 
 function yorickBuild(): Omit<Build, "opponent_id" | "games" | "win_rate" | "fell_back_to_general" | "queue" | "role"> {

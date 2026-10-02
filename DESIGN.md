@@ -59,6 +59,12 @@ row = `["champId", [[oppId, wins, games] x10], wins, games, ...]`.
    the rune page and item set — exactly once per champ select (see the owner
    table: no re-import when the lane opponent appears later, the UI only
    suggests a manual import; summoner spells are never written).
+   The u.gg work (build, champion roles) runs in the background so the 1 s
+   poll never waits for u.gg; right before writing, the import checks it's
+   still the same champ select (session `gameId`) and champion, else it
+   writes nothing. "Imported" is remembered in `last_import.json` (app cache
+   dir, ignored after 2 h) so an app restart mid champ select doesn't import
+   again. Champion roles are re-checked hourly and reloaded on a new u.gg patch.
 
 ## u.gg data (unofficial — may change without notice)
 

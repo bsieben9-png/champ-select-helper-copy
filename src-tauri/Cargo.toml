@@ -1,6 +1,6 @@
 [package]
 name = "champ-select-helper"
-version = "0.1.1"
+version = "0.1.2"
 description = "League of Legends champ select helper: runes, items, spells and counters"
 edition = "2021"
 publish = false

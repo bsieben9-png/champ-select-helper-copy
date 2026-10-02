@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { RARITY_LABEL, games as fmtGames, LOW_SAMPLE, num, pct, rarityOf, wrTone, type Rarity } from "../format";
+  import { RARITY_LABEL, rarityOf, type Rarity } from "../format";
   import { tip } from "../tooltip";
   import type { AugmentOption } from "../types";
   import AugmentIcon from "./AugmentIcon.svelte";
@@ -26,16 +26,15 @@
   );
   /** Rank within its own rarity (u.gg ranks each rarity separately). */
   const rankOf = (a: AugmentOption) => augments.filter((b) => rarityOf(b.rarity) === rarityOf(a.rarity)).indexOf(a) + 1;
-  const pr = (x: number) => `${(x * 100).toFixed(1)}%`;
-  // u.gg only publishes a ranking (stats all 0): hide the stat columns then.
-  const hasStats = $derived(augments.some((a) => a.games > 0));
+  // Riot policy: "Products cannot display win rates for Augments or Arena Mode
+  // items." So augments are shown as a ranking only: never win rates/stats.
 </script>
 
 <div class="augments">
   <div class="head">
     <span class="eyebrow">Augments</span>
     <span class="faint sub">
-      {hasStats ? "picked in-game · win rate · pick rate · games" : "picked in-game · u.gg ranking, best first"}
+      picked in-game · u.gg ranking, best first
     </span>
     <span class="spacer"></span>
     {#if present.length > 1}
@@ -61,22 +60,16 @@
       {@const r = rarityOf(a.rarity)}
       <div
         class="row {r}"
-        class:nostats={!hasStats}
         role="listitem"
         use:tip={{
           title: a.name,
-          meta: hasStats ? `${RARITY_LABEL[r]} · ${pct(a.win_rate)} win rate · ${num(a.games)} games` : RARITY_LABEL[r],
+          meta: RARITY_LABEL[r],
           body: a.description,
         }}
       >
         <span class="rank num">{rankOf(a)}</span>
         <AugmentIcon name={a.name} icon={a.icon} rarity={a.rarity} size={30} />
         <span class="name">{a.name}</span>
-        {#if hasStats}
-          <span class="wr num {wrTone(a.win_rate)}" class:low={a.games < LOW_SAMPLE}>{pct(a.win_rate)}</span>
-          <span class="pick num" title="Pick rate">{pr(a.pick_rate)}</span>
-          <span class="games num" class:lowg={a.games < LOW_SAMPLE}>{fmtGames(a.games)}</span>
-        {/if}
       </div>
     {:else}
       <div class="none faint">No augments of this rarity.</div>
@@ -128,7 +121,7 @@
   }
   .row {
     display: grid;
-    grid-template-columns: 16px 30px minmax(0, 1fr) 50px 46px 44px;
+    grid-template-columns: 16px 30px minmax(0, 1fr);
     align-items: center;
     gap: 9px;
     height: 38px;
@@ -138,9 +131,6 @@
     border-left: 2px solid var(--rc, var(--gold-dim));
     font-size: 12px;
     outline: none;
-  }
-  .row.nostats {
-    grid-template-columns: 16px 30px minmax(0, 1fr);
   }
   .row:hover,
   .row:focus-visible {
@@ -166,22 +156,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .wr {
-    text-align: right;
-    font-weight: 700;
-  }
-  .low {
-    opacity: 0.6;
-  }
-  .pick,
-  .games {
-    text-align: right;
-    color: var(--muted);
-    font-size: 11px;
-  }
-  .lowg {
-    text-decoration: underline dotted var(--faint);
   }
   .none {
     padding: 8px 4px;

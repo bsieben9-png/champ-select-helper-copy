@@ -212,11 +212,16 @@ impl LcuClient {
         &self,
         roles: &HashMap<u32, Vec<Role>>,
     ) -> anyhow::Result<ChampSelectState> {
+        Ok(self.champ_select_with_identity(roles).await?.0)
+    }
+
+    /// The raw champ select session; `None` when there is none (404).
+    async fn champ_select_session(&self) -> anyhow::Result<Option<Value>> {
         let (st, session) = self
             .request(Method::GET, "/lol-champ-select/v1/session", None)
             .await?;
         if st == StatusCode::NOT_FOUND {
-            return Ok(ChampSelectState::default());
+            return Ok(None);
         }
         if !st.is_success() {
             bail!(
@@ -224,6 +229,19 @@ impl LcuClient {
                 http_error(st, &session)
             );
         }
+        Ok(Some(session))
+    }
+
+    /// [`Self::champ_select`] plus which champ select it is
+    /// ([`session_identity`]), so the watcher can tell a new champ select
+    /// (dodge → requeue) from the same one seen again.
+    pub async fn champ_select_with_identity(
+        &self,
+        roles: &HashMap<u32, Vec<Role>>,
+    ) -> anyhow::Result<(ChampSelectState, Option<String>)> {
+        let Some(session) = self.champ_select_session().await? else {
+            return Ok((ChampSelectState::default(), None));
+        };
         let from_gameflow = match self
             .request(Method::GET, "/lol-gameflow/v1/session", None)
             .await
@@ -240,7 +258,19 @@ impl LcuClient {
                 .and_then(Value::as_i64)
                 .filter(|&q| q > 0)
         });
-        Ok(parse_champ_select(&session, queue_id, roles))
+        Ok((
+            parse_champ_select(&session, queue_id, roles),
+            session_identity(&session),
+        ))
+    }
+
+    /// Cheap re-check before writing: the current champ select's identity
+    /// and my champion (one request). `None` when not in champ select.
+    pub async fn current_pick(&self) -> anyhow::Result<Option<(Option<String>, Option<u32>)>> {
+        Ok(self.champ_select_session().await?.map(|session| {
+            let me = parse_champ_select(&session, None, &HashMap::new()).my_champion_id;
+            (session_identity(&session), me)
+        }))
     }
 
     /// The lobby (`GET /lol-lobby/v2/lobby`); default/not-in-lobby when none.
@@ -539,6 +569,22 @@ fn flag(v: &Value, key: &str) -> bool {
 
 fn nonzero(id: u32) -> Option<u32> {
     (id != 0).then_some(id)
+}
+
+/// Pure: which champ select a session is, stable for its whole life and
+/// different for the next one (a dodge and requeue is a new game): the
+/// `gameId`, else the session `id` newer clients send. `None` if neither.
+pub fn session_identity(session: &Value) -> Option<String> {
+    if let Some(game_id) = session.get("gameId").and_then(Value::as_u64) {
+        if game_id != 0 {
+            return Some(format!("game:{game_id}"));
+        }
+    }
+    session
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(|id| format!("session:{id}"))
 }
 
 /// Pure: turn a `/lol-champ-select/v1/session` JSON into our state.
@@ -1504,6 +1550,24 @@ pub(crate) mod tests {
             let state = parse_lobby(&junk);
             assert_eq!((state.queue, state.slots.len()), (None, 0));
         }
+    }
+
+    #[test]
+    fn session_identity_is_the_game_id_else_the_session_id() {
+        let mut session = fixture("champ_select_ranked.json");
+        assert_eq!(
+            session_identity(&session).as_deref(),
+            Some("game:7212345678")
+        );
+        session["gameId"] = json!(0);
+        assert_eq!(
+            session_identity(&session).as_deref(),
+            Some("session:a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
+        );
+        session["id"] = json!("");
+        assert_eq!(session_identity(&session), None);
+        assert_eq!(session_identity(&json!({})), None);
+        assert_eq!(session_identity(&json!("garbage")), None);
     }
 
     #[test]

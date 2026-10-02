@@ -35,10 +35,14 @@ Last updated: 2026-10-02 1:30 AM MT (cloud session). Current release: v0.1.1 (po
 
 - **Code review: MERGED.** 7 bugs fixed (re-import after a client hiccup, toggling auto-import on
   after lock-in, item-set wipe on an odd GET, perk order for the client, static data needing u.gg,
-  wrong queue in the overwrite dialog, Import enabled while loading). Leftovers worth doing:
-  the watcher's u.gg calls can stall champ-select updates for 8-15 s when u.gg hangs (move build
-  fetching off the poll loop); champion
-  roles never reload after a patch change; "already imported" isn't persisted across app restarts.
+  wrong queue in the overwrite dialog, Import enabled while loading). Its leftovers are DONE
+  (`wip/watcher`): u.gg work runs off the poll loop (a hanging u.gg no longer stalls champ select
+  updates; a late build never writes into a finished/other champ select), roles reload after a
+  u.gg patch change (hourly check), "already imported" survives an app restart (`last_import.json`),
+  a League client restart mid champ select doesn't re-import, one error answer no longer clears
+  the champ select in the UI. Needs a real client to confirm: that `gameId` in
+  `/lol-champ-select/v1/session` is non-zero and differs after a dodge (falls back to the session
+  `id`; without either, restart protection is off and the 3-poll leave rule applies).
 
 - **End-to-end tests: MERGED** (`src-tauri/src/e2e/`: fake League client + scenarios; live sweep of all
   173 champions = 0 problems; real-app smoke test `scripts/smoke/run.sh` 13/13; see `docs/TESTING.md`).
@@ -63,6 +67,11 @@ Last updated: 2026-10-02 1:30 AM MT (cloud session). Current release: v0.1.1 (po
   RUNNING (cloud): `wip/compliance` (Riot policy audit → docs/COMPLIANCE.md, then security →
   docs/SECURITY.md), `wip/watcher`, `wip/modes` (resumed after the usage cap). PAUSED: `wip/efficiency`.
   Work-saving: one or few agents at a time, commit every step, 2-minute snapshots to wip/*.
+
+- **OWNER DECISIONS (2026-10-02 ~1:55 AM MT):** (a) **Remove ALL ARAM / ARAM Mayhem support** from
+  the app (code preserved on branch `saved/aram-mayhem`, commit 6e411c7). Supported modes: Ranked +
+  Normals only. Being done by the modes agent (`wip/modes`). (b) Auto-import = exactly ONE attempt at
+  lock-in, never retried (done, 6e411c7). (c) Augment win rates are never displayed (Riot policy).
 
 ## Next steps after that
 1. Merge the review/test results (branches `wip/review`, `wip/tests` if not on main yet). Optional: fill augment descriptions/pick rates from OP.GG's Mayhem page (sample in `src-tauri/tests/fixtures/other_sources/opgg_mayhem_augments_83.json`).

@@ -193,7 +193,7 @@ pub fn run() {
             };
             app.manage(state);
             app.manage(lobby::LobbyStore::default());
-            watcher::spawn(app.handle().clone());
+            watcher::spawn(app.handle().clone(), cache_dir.join("last_import.json"));
             lobby::spawn(app.handle().clone());
             Ok(())
         })

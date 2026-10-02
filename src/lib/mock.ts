@@ -688,7 +688,13 @@ export function createMockBackend(): Backend {
       opponent_id: opponent,
       result: fullPages
         ? { runes: false, item_set: true, messages: ["All rune pages are full"], needs_confirmation: FULL_PAGE }
-        : { runes: true, item_set: true, messages: [], needs_confirmation: null },
+        : {
+            runes: true,
+            item_set: true,
+            // The real backend always says what it did.
+            messages: ['Runes: set page "CSH: Yorick vs Gwen".', 'Item set: saved "CSH: Yorick vs Gwen".'],
+            needs_confirmation: null,
+          },
     });
 
   if (mode === "locked" || fullPages) setTimeout(autoImport, 1500);
@@ -762,10 +768,15 @@ export function createMockBackend(): Backend {
           needs_confirmation: FULL_PAGE,
         };
       }
+      // Like the real backend (lcu.rs import_build): it always says what it did.
+      const messages = [
+        ...(settings.import_runes ? ['Runes: set page "CSH: …".'] : []),
+        ...(settings.import_item_set ? ['Item set: saved "CSH: …".'] : []),
+      ];
       return {
         runes: settings.import_runes,
         item_set: settings.import_item_set,
-        messages: [],
+        messages,
         needs_confirmation: null,
       };
     },

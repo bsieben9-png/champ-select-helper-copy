@@ -924,6 +924,15 @@ impl Ugg {
         Ugg { http }
     }
 
+    /// Tests only: never touches the network; files not already in
+    /// `cache_dir` count as missing (like a u.gg 403).
+    #[cfg(test)]
+    pub(crate) fn new_offline(cache_dir: PathBuf) -> Self {
+        Ugg {
+            http: HttpCache::new_offline(cache_dir, MEMORY_ENTRIES),
+        }
+    }
+
     async fn versions(&self) -> anyhow::Result<Arc<Versions>> {
         self.http
             .get(VERSIONS_URL, VERSIONS_TTL, parse_versions)

@@ -219,7 +219,11 @@ class AppState {
     }
     const detail = result.messages.join(" · ") || undefined;
     if (parts.length) {
-      this.toast(result.messages.length ? "warn" : "success", `Imported ${joinAnd(parts)} for ${label}`, detail, tag);
+      // The backend always reports what it did in `messages` ("Runes: set page …"),
+      // so warn only when something switched on in Settings wasn't imported.
+      const s = this.settings;
+      const missed = (s?.import_runes !== false && !result.runes) || (s?.import_item_set !== false && !result.item_set);
+      this.toast(missed ? "warn" : "success", `Imported ${joinAnd(parts)} for ${label}`, detail, tag);
     } else {
       this.toast("error", `Couldn't import for ${label}`, detail ?? "Nothing was imported.", tag);
     }

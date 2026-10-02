@@ -75,6 +75,14 @@ impl DDragon {
         }
     }
 
+    /// Tests only: never touches the network (see `Ugg::new_offline`).
+    #[cfg(test)]
+    pub(crate) fn new_offline(cache_dir: PathBuf) -> Self {
+        DDragon {
+            http: HttpCache::new_offline(cache_dir, 8),
+        }
+    }
+
     /// Load all static data for the latest Data Dragon version.
     /// `ugg_patch` and `roles` are copied into the result.
     pub async fn static_data(

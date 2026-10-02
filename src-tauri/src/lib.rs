@@ -1,4 +1,6 @@
 mod ddragon;
+#[cfg(test)]
+mod e2e;
 mod http_cache;
 mod lcu;
 pub mod model;

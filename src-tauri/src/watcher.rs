@@ -31,7 +31,7 @@ pub fn spawn<R: Runtime>(app: AppHandle<R>) {
 }
 
 #[derive(Default)]
-struct Watcher {
+pub(crate) struct Watcher {
     /// u.gg primary roles (empty until loaded).
     roles: HashMap<u32, Vec<Role>>,
     roles_loaded: bool,
@@ -52,7 +52,7 @@ struct LastImport {
 
 impl Watcher {
     /// One iteration; returns how long to sleep before the next one.
-    async fn tick<R: Runtime>(&mut self, app: &AppHandle<R>) -> Duration {
+    pub(crate) async fn tick<R: Runtime>(&mut self, app: &AppHandle<R>) -> Duration {
         let state = app.state::<AppState>();
 
         // Clone the client so no lock is held across HTTP calls.
@@ -60,7 +60,7 @@ impl Watcher {
         let client = match existing {
             Some(client) => client,
             None => {
-                let found = tauri::async_runtime::spawn_blocking(LcuClient::discover)
+                let found = tauri::async_runtime::spawn_blocking(discover)
                     .await
                     .ok()
                     .flatten();
@@ -181,7 +181,10 @@ impl Watcher {
             return;
         }
         let settings = state.settings.read().await.clone();
-        if !settings.auto_import {
+        // Nothing to import when runes and item set are both switched off (an
+        // empty result would show an "import failed" toast every game).
+        let anything = settings.import_runes || settings.import_item_set;
+        if !settings.auto_import || !anything {
             // Off at the moment of lock-in: this pick is done. Switching
             // auto-import on later in this champ select must not import (the
             // user may already have set up their runes by hand).
@@ -245,6 +248,15 @@ impl Watcher {
             self.last_error = Some(message);
         }
     }
+}
+
+/// Find a running League client. Unit tests drive the watcher against a
+/// fake client and must never connect to (and import into) a real one.
+fn discover() -> Option<LcuClient> {
+    if cfg!(test) {
+        return None;
+    }
+    LcuClient::discover()
 }
 
 /// Should the locked-in champion be auto-imported now, given what was

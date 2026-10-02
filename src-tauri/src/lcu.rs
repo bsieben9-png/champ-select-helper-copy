@@ -98,6 +98,13 @@ impl LcuClient {
         })
     }
 
+    /// Tests only: a client for a fake League client at `base`, e.g.
+    /// `http://127.0.0.1:1234` (production only ever uses [`Self::discover`]).
+    #[cfg(test)]
+    pub(crate) fn for_test(base: &str, token: &str) -> LcuClient {
+        LcuClient::from_base_url(base.to_string(), token).expect("LCU test client")
+    }
+
     /// Send a request. Err only on transport errors (client gone, timeout);
     /// any HTTP status is returned with the parsed body (Null when empty,
     /// a JSON string when the body isn't JSON).

@@ -173,17 +173,23 @@ default pages are never touched).
 
 ### Request rate
 
-While League is closed the app looks for the lockfile every 3 s (two small file reads, no
-network). While connected it asks the client one cheap question per poll; in champ select
-it adds the two champ-select reads. That is roughly 3 small local requests per second in
-champ select, the same order as the client's own UI and the mainstream apps (most of which
-use a WebSocket subscription instead). See "Changes" for the slower idle polling.
+| Situation | Requests to the client |
+|---|---|
+| League closed | none (looks for the lockfile every 3 s: two small file reads) |
+| Home screen, in game, end of game | 1 cheap `gameflow-phase` request every **5 s** |
+| Lobby, in queue, ready check | 1 `gameflow-phase` request per second (champ select can start any moment) |
+| Champ select | 3 small requests per second (phase, champ select session, queue) |
+| Lock-in / Import button | a handful of rune page / item set requests, once |
+
+That is the same order as the client's own UI and the mainstream apps (most of which keep a
+WebSocket subscription open instead). The first few polls after leaving champ select stay
+at 1 s so a dodge is noticed and the next champ select imports again.
 
 ### During the game
 
-Only `GET /lol-gameflow/v1/gameflow-phase` to the **client** (not the game). No game data
-is read; the ARAM Mayhem augment list is u.gg's static per-champion ranking downloaded
-before the game.
+Only `GET /lol-gameflow/v1/gameflow-phase` to the **client** (not the game), every 5 s. No
+game data is read; the ARAM Mayhem augment list is u.gg's static per-champion ranking
+downloaded before the game.
 
 ## Compared with the mainstream apps
 
@@ -304,7 +310,20 @@ must keep changing only the slot's `perks` field (never the champion, skin or sp
 
 ## Changes made in this review
 
-(filled in below as they land)
+- Verified commit 3230aec (lockfile-only discovery): complete. No process listing, handles,
+  command lines or memory reads remain; stale comments that still described the old
+  command-line method were corrected (`src-tauri/src/lcu.rs`).
+- The League-client connection can no longer be redirected anywhere: redirects are never
+  followed, so the password and the certificate-check exception only ever apply to
+  `127.0.0.1:<port>` (`src-tauri/src/lcu.rs`, test `redirects_are_never_followed`).
+- Slower polling away from champ select: 5 s on the home screen and in game instead of
+  1 s (`src-tauri/src/watcher.rs`, e2e test `polls_slowly_away_from_champ_select`). Owner
+  rules (import once at lock-in, never re-import, spells untouched) unchanged; all tests
+  green.
+- Settings page shows Riot's legal boilerplate in full (it was shortened).
+- README: no longer claims the import sets summoner spells; no longer tells you to run the
+  app as administrator; new "Will this get me banned?" section.
+- Not changed (owner decision): the auto-import default.
 
 ## Sources (checked 2026-10-02)
 

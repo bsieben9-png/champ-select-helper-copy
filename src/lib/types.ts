@@ -11,11 +11,11 @@ export type Queue =
   | "aram"
   | "aram_mayhem";
 
-/** Where stats come from (only u.gg for now). */
+/** Stats provider. Only u.gg for now; more may be added later. */
 export type Source = "ugg";
 
 export interface Settings {
-  /** Import runes + item set once, when you lock in. Spells are never changed. */
+  /** Import runes / item set once, when you lock in. */
   auto_import: boolean;
   import_runes: boolean;
   import_item_set: boolean;
@@ -78,6 +78,21 @@ export interface Build {
   skill_order: string[];
   skill_priority: string;
   available_roles: Role[];
+  /** ARAM Mayhem augments, best first. Empty for other queues
+   *  (the UI also treats a missing field as empty). */
+  augments: AugmentOption[];
+}
+
+export interface AugmentOption {
+  id: number;
+  name: string;
+  icon: string;
+  /** e.g. "silver" | "gold" | "prismatic" */
+  rarity: string;
+  description: string;
+  games: number;
+  win_rate: number;
+  pick_rate: number;
 }
 
 export interface MatchupStat {
@@ -94,15 +109,12 @@ export interface Counter {
   in_pool: boolean;
 }
 
-/** One champion in a role's tier list (blind / first pick). */
+/** One row of a role tier list (sorted best first). */
 export interface TierEntry {
   champion_id: number;
   games: number;
-  /** 0..1 */
   win_rate: number;
-  /** Share of matches with this champion picked in this role (0..1). */
   pick_rate: number;
-  /** Share of matches with this champion banned (0..1; 0 if unknown). */
   ban_rate: number;
   in_pool: boolean;
 }
@@ -189,12 +201,13 @@ export interface RunePageRef {
   name: string;
 }
 
+/** Summoner spells are recommendation-only: the app never changes them. */
 export interface ImportResult {
   runes: boolean;
   item_set: boolean;
   messages: string[];
-  /** All rune page slots are used: the user's current page we'd overwrite if
-   * they agree (call import_build again with overwritePageId = id). */
+  /** Set when all rune pages are full: ask before overwriting this page,
+   *  then call import_build again with `overwritePageId: page.id`. */
   needs_confirmation: RunePageRef | null;
 }
 

@@ -1,0 +1,322 @@
+/* Champ Select Helper — League-client-style dark theme. */
+:root {
+  color-scheme: dark;
+
+  --bg: #010a13;
+  --bg-2: #040e1b;
+  --panel: #0a1428;
+  --panel-2: #091428;
+  --panel-hi: #0f1d36;
+  --line: #1e2328;
+  --line-2: #2a2f35;
+  --line-gold: #463714;
+
+  --gold: #c89b3c;
+  --gold-hi: #c8aa6e;
+  --gold-dim: #785a28;
+  --gold-text: #cdbe91;
+
+  --text: #f0e6d2;
+  --muted: #a09b8c;
+  --faint: #6b6960;
+
+  --teal: #0ac8b9;
+  --blue: #0397ab;
+  --red: #e84057;
+  --green: #3ecf8e;
+
+  --radius: 2px;
+  --font: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, "Helvetica Neue", Arial,
+    "Liberation Sans", sans-serif;
+  --font-head: "Segoe UI Semibold", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial,
+    "Liberation Sans", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  height: 100%;
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 1px solid var(--gold-hi);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e2328;
+  border: 2px solid var(--bg);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-dim);
+}
+
+/* ---------- text helpers ---------- */
+.muted {
+  color: var(--muted);
+}
+.faint {
+  color: var(--faint);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.good {
+  color: var(--green);
+}
+.bad {
+  color: var(--red);
+}
+.even {
+  color: var(--text);
+}
+
+.eyebrow {
+  font: 600 11px/1.2 var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--gold-hi);
+}
+
+/* ---------- panels ---------- */
+.panel {
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  border: 1px solid var(--line);
+}
+.panel.gold {
+  border-color: var(--line-gold);
+}
+
+/* ---------- buttons (client style: square, gold gradient border) ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  background: #1e2328;
+  color: var(--gold-text);
+  border: 1px solid transparent;
+  border-image: linear-gradient(180deg, var(--gold-hi), var(--gold-dim)) 1;
+  font: 700 11.5px/1 var(--font-head);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    color 0.12s,
+    box-shadow 0.12s,
+    background 0.12s;
+}
+.btn:hover:not(:disabled) {
+  color: var(--text);
+  border-image: linear-gradient(180deg, var(--text), var(--gold-hi)) 1;
+  box-shadow: inset 0 0 10px rgba(200, 170, 110, 0.25);
+  background: linear-gradient(180deg, #2a2a26, #1e2328);
+}
+.btn:active:not(:disabled) {
+  color: var(--gold-dim);
+}
+.btn:disabled {
+  color: #5c5b57;
+  border-image: linear-gradient(180deg, #3c3c41, #2a2a2e) 1;
+  cursor: default;
+}
+.btn.primary {
+  background: linear-gradient(180deg, #1e2a2c, #0c1b22);
+  color: #e8f6f5;
+  border-image: linear-gradient(180deg, var(--gold-hi), var(--gold)) 1;
+}
+.btn.primary:hover:not(:disabled) {
+  box-shadow:
+    inset 0 0 12px rgba(10, 200, 185, 0.25),
+    0 0 10px rgba(200, 155, 60, 0.25);
+}
+.btn.primary:disabled {
+  background: #1e2328;
+  color: #5c5b57;
+  border-image: linear-gradient(180deg, #3c3c41, #2a2a2e) 1;
+}
+.btn.small {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 10.5px;
+}
+.btn.ghost {
+  border-image: none;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+.btn.ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-image: none;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 2px;
+}
+.icon-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ---------- form controls ---------- */
+.input,
+.select {
+  height: 30px;
+  background: #010a13;
+  border: 1px solid var(--line-2);
+  color: var(--text);
+  padding: 0 10px;
+  border-radius: 0;
+  outline: none;
+}
+.input::placeholder {
+  color: var(--faint);
+}
+.input:focus,
+.select:focus {
+  border-color: var(--gold-dim);
+  box-shadow: 0 0 0 1px rgba(200, 155, 60, 0.15);
+}
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--gold-hi) 50%),
+    linear-gradient(135deg, var(--gold-hi) 50%, transparent 50%);
+  background-position:
+    calc(100% - 13px) 50%,
+    calc(100% - 9px) 50%;
+  background-size:
+    4px 4px,
+    4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+.select option,
+.select optgroup {
+  background: #0a1428;
+  color: var(--text);
+}
+
+/* ---------- tooltip (see lib/tooltip.ts) ---------- */
+.tip {
+  position: fixed;
+  z-index: 1000;
+  display: none;
+  max-width: 270px;
+  padding: 7px 10px 8px;
+  background: #010a13;
+  border: 1px solid var(--gold-dim);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.tip-title {
+  font: 600 12.5px/1.3 var(--font-head);
+  color: var(--text);
+}
+.tip-meta {
+  font-size: 11.5px;
+  color: var(--gold);
+  margin-top: 1px;
+}
+.tip-body {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* ---------- misc ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: 200px 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, #0d1a30 0px, #14243f 80px, #0d1a30 160px) #0d1a30;
+  background-size: 400px 100%;
+  animation: shimmer 1.4s linear infinite;
+}

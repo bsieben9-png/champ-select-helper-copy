@@ -86,7 +86,9 @@
         {/if}
       </div>
     </div>
-    {#if actions}<div class="actions">{@render actions(build)}</div>{/if}
+    <!-- No build while the next one loads: the previous (still shown) build
+         may be another champion's, and must not be imported by mistake. -->
+    {#if actions}<div class="actions">{@render actions(loader.loading ? null : build)}</div>{/if}
   </header>
 
   {#if build && (build.fell_back_to_general || (showRoleTabs && build.available_roles.length > 1))}

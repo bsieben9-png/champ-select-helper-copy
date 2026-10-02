@@ -377,13 +377,13 @@ pub fn strip_html(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::http_cache::test_util::{fixture, temp_dir};
 
     const V: &str = "16.19.1";
 
-    fn seeded(name: &str) -> (DDragon, PathBuf) {
+    pub(crate) fn seeded(name: &str) -> (DDragon, PathBuf) {
         let dir = temp_dir(name);
         let dd = DDragon {
             http: HttpCache::new_offline(dir.clone(), 8),

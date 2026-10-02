@@ -149,7 +149,9 @@ impl Default for Settings {
 pub struct RunePage {
     pub primary_style: u32,
     pub sub_style: u32,
-    /// 4 primary-tree perks then 2 secondary-tree perks (u.gg order).
+    /// The 6 selected perks (keystone first). Order is u.gg's (the rest
+    /// sorted by id, trees mixed), not slot order: match by id. The import
+    /// re-orders them into the client's slot order.
     pub perks: Vec<u32>,
     /// 3 stat shards (offense, flex, defense).
     pub shards: Vec<u32>,

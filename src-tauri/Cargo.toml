@@ -26,6 +26,8 @@ sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+# Mock runtime (`tauri::test`) for driving the watcher in tests.
+tauri = { version = "2", features = ["test"] }
 
 [profile.release]
 codegen-units = 1

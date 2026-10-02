@@ -158,7 +158,7 @@
     </div>
 
     <p class="about faint">
-      Stats: u.gg (unofficial){app.staticData ? ` · Patch ${patchLabel(app.staticData.ugg_patch)}` : ""} · Names &amp;
+      Stats: u.gg (unofficial){app.staticData?.ugg_patch ? ` · Patch ${patchLabel(app.staticData.ugg_patch)}` : ""} · Names &amp;
       icons: Riot Data Dragon{app.staticData ? ` ${app.staticData.version}` : ""}. Champ Select Helper isn't endorsed by
       Riot Games.
     </p>

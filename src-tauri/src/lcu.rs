@@ -247,7 +247,10 @@ impl LcuClient {
 
         if settings.import_runes {
             let name = truncate_chars(&title, RUNE_PAGE_NAME_MAX);
-            match self.import_runes(build, &name, overwrite_page_id).await {
+            match self
+                .import_runes(build, &name, static_data, overwrite_page_id)
+                .await
+            {
                 Ok(RunesOutcome::Imported(notes)) => {
                     result.runes = true;
                     result.messages.push(format!("Runes: set page \"{name}\"."));
@@ -298,6 +301,7 @@ impl LcuClient {
         &self,
         build: &Build,
         name: &str,
+        static_data: Option<&StaticData>,
         overwrite: Option<u64>,
     ) -> anyhow::Result<RunesOutcome> {
         let runes = &build.runes;
@@ -309,11 +313,9 @@ impl LcuClient {
             bail!("the build has an incomplete rune page");
         }
         let mut notes = Vec::new();
-        let selected: Vec<u32> = runes
-            .perks
-            .iter()
-            .chain(runes.shards.iter())
-            .copied()
+        let selected: Vec<u32> = ordered_perks(runes, static_data)
+            .into_iter()
+            .chain(runes.shards.iter().copied())
             .collect();
         let body = json!({
             "name": name,
@@ -423,6 +425,11 @@ impl LcuClient {
             .ok_or_else(|| anyhow!("no summoner id (not logged in?)"))?;
         let path = format!("/lol-item-sets/v1/item-sets/{summoner_id}/sets");
         let existing = self.get(&path).await?;
+        // The PUT replaces *all* item sets: never write back a list we
+        // couldn't read, or the user's own sets would be wiped.
+        if !existing.get("itemSets").is_some_and(Value::is_array) {
+            bail!("couldn't read your item sets from the client");
+        }
         let new_set = make_item_set(build, title, &new_uid(build.champion_id));
         let mut updated = merge_item_sets(existing, new_set, build.champion_id, now_ms());
         if updated.get("accountId").and_then(Value::as_u64).is_none() {
@@ -944,6 +951,47 @@ fn build_title(build: &Build, static_data: Option<&StaticData>) -> String {
     }
 }
 
+/// The 6 perks in the order the client itself uses: keystone, the 3 primary
+/// rows, then the 2 secondary perks by row. u.gg lists the keystone and then
+/// the other five sorted by id, mixing both trees (Grasp, Presence of Mind,
+/// Demolish, Overgrowth, Bone Plating, Legend: Bloodline). Unchanged when the
+/// rune trees are unknown or the perks don't fit them.
+fn ordered_perks(runes: &RunePage, static_data: Option<&StaticData>) -> Vec<u32> {
+    let original = runes.perks.clone();
+    let style = |id: u32| static_data?.rune_styles.iter().find(|s| s.id == id);
+    let (Some(primary), Some(sub)) = (style(runes.primary_style), style(runes.sub_style)) else {
+        return original;
+    };
+    let in_row = |row: &[RuneInfo]| -> Vec<u32> {
+        runes
+            .perks
+            .iter()
+            .copied()
+            .filter(|p| row.iter().any(|r| r.id == *p))
+            .collect()
+    };
+    let mut out = Vec::with_capacity(6);
+    for row in &primary.slots {
+        match in_row(row)[..] {
+            [perk] => out.push(perk),
+            _ => return original,
+        }
+    }
+    // Secondary tree: keystones can't be taken.
+    for row in sub.slots.iter().skip(1) {
+        out.extend(in_row(row));
+    }
+    let mut sorted_out = out.clone();
+    let mut sorted_original = original.clone();
+    sorted_out.sort_unstable();
+    sorted_original.sort_unstable();
+    if sorted_out == sorted_original {
+        out
+    } else {
+        original
+    }
+}
+
 fn truncate_chars(s: &str, max: usize) -> String {
     s.chars()
         .take(max)
@@ -1087,14 +1135,14 @@ fn new_uid(seed: u32) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpListener;
     use Role::*;
 
-    fn fixture(name: &str) -> Value {
+    pub(crate) fn fixture(name: &str) -> Value {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/lcu")
             .join(name);
@@ -1610,6 +1658,101 @@ mod tests {
         assert_eq!(merged["itemSets"].as_array().unwrap().len(), 1);
     }
 
+    /// Precision + Resolve trees as in `ddragon_runesReforged.json`.
+    fn with_rune_trees(mut sd: StaticData) -> StaticData {
+        let style = |id: u32, rows: &[&[u32]]| RuneStyle {
+            id,
+            name: String::new(),
+            icon: String::new(),
+            slots: rows
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|&id| RuneInfo {
+                            id,
+                            name: String::new(),
+                            icon: String::new(),
+                            short_desc: String::new(),
+                        })
+                        .collect()
+                })
+                .collect(),
+        };
+        sd.rune_styles = vec![
+            style(
+                8000,
+                &[
+                    &[8005, 8008, 8021, 8010],
+                    &[9101, 9111, 8009],
+                    &[9104, 9105, 9103],
+                    &[8014, 8017, 8299],
+                ],
+            ),
+            style(
+                8400,
+                &[
+                    &[8437, 8439, 8465],
+                    &[8446, 8463, 8401],
+                    &[8429, 8444, 8473],
+                    &[8451, 8453, 8242],
+                ],
+            ),
+        ];
+        sd
+    }
+
+    /// u.gg's order for Yorick top (keystone, then the rest sorted by id).
+    const UGG_YORICK_PERKS: [u32; 6] = [8437, 8009, 8446, 8451, 8473, 9103];
+
+    #[test]
+    fn perks_are_put_in_client_order() {
+        let sd = with_rune_trees(static_data());
+        let mut runes = sample_build().runes;
+        runes.perks = UGG_YORICK_PERKS.to_vec();
+        assert_eq!(
+            ordered_perks(&runes, Some(&sd)),
+            // Grasp, Demolish, Bone Plating, Overgrowth | Presence of Mind, Bloodline
+            vec![8437, 8446, 8473, 8451, 8009, 9103]
+        );
+        // Precision primary (another u.gg row): Conqueror, Triumph, Legend, Last Stand.
+        let precision = RunePage {
+            primary_style: 8000,
+            sub_style: 8400,
+            perks: vec![8010, 8299, 8446, 8473, 9103, 9111],
+            ..runes.clone()
+        };
+        assert_eq!(
+            ordered_perks(&precision, Some(&sd)),
+            vec![8010, 9111, 9103, 8299, 8446, 8473]
+        );
+        // Unknown trees or perks that don't fit them: left alone.
+        assert_eq!(ordered_perks(&runes, None), UGG_YORICK_PERKS.to_vec());
+        assert_eq!(
+            ordered_perks(&runes, Some(&static_data())),
+            UGG_YORICK_PERKS.to_vec()
+        );
+        let mut odd = runes.clone();
+        odd.perks[1] = 8010; // a second keystone
+        assert_eq!(ordered_perks(&odd, Some(&sd)), odd.perks);
+    }
+
+    #[tokio::test]
+    async fn imported_page_lists_perks_in_client_order() {
+        let (mock, client) = mock_client(|_| {}).await;
+        let mut build = sample_build();
+        build.runes.perks = UGG_YORICK_PERKS.to_vec();
+        let sd = with_rune_trees(static_data());
+        let result = client
+            .import_build(&build, &runes_only(), Some(&sd), None)
+            .await;
+        assert!(result.runes, "{result:?}");
+        let m = mock.lock().unwrap();
+        assert_eq!(
+            m.pages.last().unwrap()["selectedPerkIds"],
+            json!([8437, 8446, 8473, 8451, 8009, 9103, 5008, 5001, 5001])
+        );
+    }
+
     #[test]
     fn uid_shape() {
         let a = new_uid(83);
@@ -1638,13 +1781,13 @@ mod tests {
     // --- against a mock League client ---------------------------------------
 
     #[derive(Default)]
-    struct Mock {
+    pub(crate) struct Mock {
         pages: Vec<Value>,
         owned_pages: u64,
         next_page_id: u64,
         /// POST of a page with this name fails (simulates a client error).
         fail_post_named: Option<String>,
-        session: Option<Value>,
+        pub(crate) session: Option<Value>,
         gameflow: Value,
         summoner: Value,
         item_sets: Value,
@@ -1678,7 +1821,7 @@ mod tests {
                 .collect()
         }
 
-        fn requests_to(&self, method: &str, prefix: &str) -> usize {
+        pub(crate) fn requests_to(&self, method: &str, prefix: &str) -> usize {
             self.requests
                 .iter()
                 .filter(|(m, p, _)| m == method && p.starts_with(prefix))
@@ -1827,7 +1970,18 @@ mod tests {
         LcuClient::from_base_url(format!("http://{addr}"), "test").unwrap()
     }
 
-    async fn mock_client(setup: impl FnOnce(&mut Mock)) -> (Arc<StdMutex<Mock>>, LcuClient) {
+    /// A client whose port has nothing listening (League closed/restarting).
+    pub(crate) async fn unreachable_client() -> LcuClient {
+        let port = {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        LcuClient::from_base_url(format!("http://127.0.0.1:{port}"), "x").unwrap()
+    }
+
+    pub(crate) async fn mock_client(
+        setup: impl FnOnce(&mut Mock),
+    ) -> (Arc<StdMutex<Mock>>, LcuClient) {
         let mut mock = Mock::new();
         setup(&mut mock);
         let mock = Arc::new(StdMutex::new(mock));
@@ -1904,6 +2058,33 @@ mod tests {
             vec!["My own Yorick set", "CSH: Gwen Top", "CSH: Yorick vs Gwen"]
         );
         assert_eq!(m.item_sets["accountId"], json!(2345678901234567u64));
+    }
+
+    #[tokio::test]
+    async fn unreadable_item_sets_are_never_overwritten() {
+        // A 2xx answer without the list (empty body, error object): a PUT
+        // would replace every item set the user has with ours.
+        for answer in [
+            Value::Null,
+            json!({}),
+            json!({"itemSets": null}),
+            json!("oops"),
+        ] {
+            let (mock, client) = mock_client(|m| m.item_sets = answer.clone()).await;
+            let settings = Settings {
+                import_runes: false,
+                ..Settings::default()
+            };
+            let result = client
+                .import_build(&sample_build(), &settings, None, None)
+                .await;
+            assert!(!result.item_set, "{answer}: {result:?}");
+            assert_eq!(
+                mock.lock().unwrap().requests_to("PUT", "/lol-item-sets"),
+                0,
+                "{answer}"
+            );
+        }
     }
 
     #[tokio::test]

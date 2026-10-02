@@ -8,6 +8,8 @@
   let { augments }: { augments: AugmentOption[] } = $props();
 
   const TOP = 6;
+  /** "All" view (collapsed): best few of EACH rarity, since in-game you're offered one rarity at a time. */
+  const PER_RARITY = 3;
   const ORDER: Rarity[] = ["prismatic", "gold", "silver", "other"];
 
   let filter = $state<Rarity | "all">("all");
@@ -15,7 +17,15 @@
 
   const present = $derived(ORDER.filter((r) => augments.some((a) => rarityOf(a.rarity) === r)));
   const filtered = $derived(filter === "all" ? augments : augments.filter((a) => rarityOf(a.rarity) === filter));
-  const shown = $derived(expanded ? filtered : filtered.slice(0, TOP));
+  const shown = $derived(
+    expanded
+      ? filtered
+      : filter === "all"
+        ? ORDER.flatMap((r) => augments.filter((a) => rarityOf(a.rarity) === r).slice(0, PER_RARITY))
+        : filtered.slice(0, TOP),
+  );
+  /** Rank within its own rarity (u.gg ranks each rarity separately). */
+  const rankOf = (a: AugmentOption) => augments.filter((b) => rarityOf(b.rarity) === rarityOf(a.rarity)).indexOf(a) + 1;
   const pr = (x: number) => `${(x * 100).toFixed(1)}%`;
   // u.gg only publishes a ranking (stats all 0): hide the stat columns then.
   const hasStats = $derived(augments.some((a) => a.games > 0));
@@ -59,7 +69,7 @@
           body: a.description,
         }}
       >
-        <span class="rank num">{augments.indexOf(a) + 1}</span>
+        <span class="rank num">{rankOf(a)}</span>
         <AugmentIcon name={a.name} icon={a.icon} rarity={a.rarity} size={30} />
         <span class="name">{a.name}</span>
         {#if hasStats}
@@ -73,7 +83,7 @@
     {/each}
   </div>
 
-  {#if filtered.length > TOP}
+  {#if filtered.length > shown.length || expanded}
     <button class="btn small ghost more" onclick={() => (expanded = !expanded)}>
       {expanded ? "Show top picks only" : `Show all ${filtered.length}`}
     </button>

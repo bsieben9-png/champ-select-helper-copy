@@ -1,0 +1,42 @@
+# Hand-off: where the work stands
+
+Last updated: 2026-10-01 7:35 PM MT (end of the cloud session).
+
+## Done (merged on `main`)
+- Design (`DESIGN.md`), shared contract (`model.rs` / `types.ts`), Tauri + Svelte skeleton
+- Data layer: u.gg builds / matchup builds / counters / matchups / tier list, Data Dragon static
+  data, disk + memory cache, patch-day fallback (`ugg.rs`, `ddragon.rs`, `http_cache.rs`)
+- League client: discovery, champ select parsing + enemy role inference, rune page + item set
+  import (only `CSH:` pages; asks before overwriting a user page), auto-import ONCE at lock-in,
+  spells never touched (`lcu.rs`, `watcher.rs`)
+- CI: Linux tests + Windows installer build on every push; release workflow; cloud SessionStart hook
+- 62 Rust tests pass; `npm run check` clean
+
+## In progress (NOT on main yet): snapshots pushed as branches
+- **`wip/ui`**: the Svelte UI (Live / Lookup / Champion Pool / Settings, League-style theme,
+  mock mode via `npm run dev`). It was still being built: finish it, check that
+  `npm run build` and `npm run check` pass, then merge it into `main`. It must include: rune page
+  overwrite confirmation modal (`ImportResult.needs_confirmation`, `import_build(build, overwritePageId)`),
+  tier list when lane opponent unknown (`get_tier_list`), "Import matchup build?" hint when the
+  opponent appears after auto-import, source shown as "via u.gg", **ARAM Mayhem** queue +
+  **Augments** section (`Build.augments`), Mayhem build kept visible while the game is InProgress.
+- **`wip/mayhem`**: ARAM Mayhem research + backend. Probably empty. Goal: find u.gg's (or
+  Lolalytics / OP.GG) ARAM Mayhem build + augment data, add `AugmentOption` + `Build.augments`
+  (shape in `docs/HANDOFF.md` → below), map LCU queue 2400 (+2450) → Mayhem data. Leads are in CLAUDE.md.
+  `AugmentOption { id, name, icon, rarity, description, games, win_rate, pick_rate }`.
+  Augment icons will need the CSP `img-src` in `tauri.conf.json` extended to their host.
+
+## Next steps after that
+1. Merge `wip/ui` (and `wip/mayhem`) → `main`, resolve contract conflicts, run all checks, push.
+2. Test on the Windows PC with League running (see the list in the LCU agent notes below).
+3. Lolalytics as a second source behind a source dropdown (CLAUDE.md "Ideas for later").
+
+## Things only a real PC + League can verify
+TLS to the client; reading the client's command line (League running as admin → lockfile fallback);
+own-team hover field; ARAM/Mayhem pick actions; "rune pages full" detection; 25-char page name
+limit; item set PUT accepted; blind-pick enemy team shape.
+
+## Owner decisions (summary; full table in DESIGN.md)
+Auto-import on/off, ONCE at lock-in only, never re-imports. Spells are recommendation only. Rune
+pages full → ask first. Blind pick → tier list for my role. Emerald+ / World. ARAM = **Mayhem only**
+(augments matter most). Multi-source later as a dropdown (Lolalytics first).

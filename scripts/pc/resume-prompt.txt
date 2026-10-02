@@ -1,0 +1,8 @@
+You are continuing the Champ Select Helper project (Tauri 2 + Rust + Svelte Windows app for League of Legends champ select). Read CLAUDE.md, DESIGN.md and docs/HANDOFF.md first - they hold the owner's decisions and exactly where the previous (cloud) session stopped.
+
+Then:
+1. git pull. Check the remote branches wip/ui and wip/mayhem (git fetch origin; git log main..origin/wip/ui). They hold unfinished work from the cloud session.
+2. Finish that work following docs/HANDOFF.md "In progress" + "Next steps": finish the UI, merge it into main, then the ARAM Mayhem augments backend + UI.
+3. After every milestone: run checks (npm run check, npm run build, cd src-tauri && cargo test), commit with a clear message, and git push origin main. Never leave work only on this PC.
+4. Keep docs/HANDOFF.md and the Status section of CLAUDE.md up to date so the next session (PC or cloud) can continue.
+5. Don't ask the owner questions unless a decision is truly theirs; otherwise pick the sensible option and note it in docs/HANDOFF.md.

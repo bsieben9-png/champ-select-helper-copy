@@ -75,6 +75,10 @@ pub struct HttpCache {
     /// Tests: never touch the network; files not on disk count as missing.
     offline: bool,
     slots: StdMutex<SlotMap>,
+    /// Tests: URL substrings whose requests hang until un-stalled (a server
+    /// that accepts the connection but doesn't answer).
+    #[cfg(test)]
+    stalled: tokio::sync::watch::Sender<Vec<String>>,
 }
 
 impl HttpCache {
@@ -95,6 +99,8 @@ impl HttpCache {
             max_entries: max_entries.max(1),
             offline: false,
             slots: StdMutex::new(HashMap::new()),
+            #[cfg(test)]
+            stalled: tokio::sync::watch::Sender::new(Vec::new()),
         }
     }
 
@@ -103,6 +109,29 @@ impl HttpCache {
         HttpCache {
             offline: true,
             ..HttpCache::new(dir, max_entries)
+        }
+    }
+
+    /// Tests: make every request whose URL contains `pattern` hang (`true`)
+    /// until it is released again (`false`).
+    #[cfg(test)]
+    pub fn set_stalled(&self, pattern: &str, stalled: bool) {
+        self.stalled.send_modify(|patterns| {
+            patterns.retain(|p| p != pattern);
+            if stalled {
+                patterns.push(pattern.to_string());
+            }
+        });
+    }
+
+    #[cfg(test)]
+    async fn wait_while_stalled(&self, url: &str) {
+        let mut rx = self.stalled.subscribe();
+        loop {
+            let stalled = rx.borrow_and_update().iter().any(|p| url.contains(p));
+            if !stalled || rx.changed().await.is_err() {
+                return;
+            }
         }
     }
 
@@ -120,6 +149,8 @@ impl HttpCache {
         ttl: Duration,
         parse: Parser<T>,
     ) -> anyhow::Result<Option<Arc<T>>> {
+        #[cfg(test)]
+        self.wait_while_stalled(url).await;
         let slot = self.slot(url);
         let mut slot = slot.lock().await;
 

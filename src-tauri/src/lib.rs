@@ -185,7 +185,7 @@ pub fn run() {
                 static_data: RwLock::new(None),
             };
             app.manage(state);
-            watcher::spawn(app.handle().clone());
+            watcher::spawn(app.handle().clone(), cache_dir.join("last_import.json"));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

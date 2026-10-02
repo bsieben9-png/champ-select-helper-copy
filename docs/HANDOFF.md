@@ -45,10 +45,13 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
   The bug it found (one error reply from League after lock-in caused a second import) is FIXED:
   the import memory is only forgotten after 3 polls in a row outside champ select. 90 tests pass.
 
-- **In progress (cloud, started ~8:35 PM MT):** `wip/watcher` (champ select never stalls on a slow
-  u.gg, roles reload after a patch, no re-import after an app restart) and `wip/augments` (Mayhem
-  augment descriptions + pick rate/tier from CommunityDragon/OP.GG). If not merged on main, finish
-  them from those branches.
+- **OWNER PRIORITY (8:45 PM MT): the app working properly > new features. Modes that matter:
+  Ranked, Normals (Quickplay/Swiftplay/Draft), ARAM Mayhem.** Lolalytics + augment descriptions are
+  PAUSED (not wanted now).
+- **In progress (cloud):** `wip/watcher` (champ select never stalls on a slow u.gg, roles reload
+  after a patch, no re-import after an app restart) and `wip/modes` (end-to-end correctness for
+  Ranked / Normals incl. Quickplay's lobby champion picks / ARAM Mayhem bench+rerolls; per-mode
+  manual checklist in docs/TESTING.md). If not merged on main, finish them from those branches.
 
 ## Next steps after that
 1. Merge the review/test results (branches `wip/review`, `wip/tests` if not on main yet). Optional: fill augment descriptions/pick rates from OP.GG's Mayhem page (sample in `src-tauri/tests/fixtures/other_sources/opgg_mayhem_augments_83.json`).

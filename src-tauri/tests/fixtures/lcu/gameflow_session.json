@@ -1,0 +1,41 @@
+{
+  "gameClient": {"observerServerIp": "", "observerServerPort": 0, "running": false, "serverIp": "", "serverPort": 0, "visible": false},
+  "gameData": {
+    "gameId": 7212345678,
+    "gameName": "",
+    "isCustomGame": false,
+    "password": "",
+    "playerChampionSelections": [],
+    "queue": {
+      "allowablePremadeSizes": [1, 2],
+      "areFreeChampionsAllowed": false,
+      "assetMutator": "",
+      "category": "PvP",
+      "championsRequiredToPlay": 20,
+      "description": "Ranked Solo/Duo",
+      "detailedDescription": "",
+      "gameMode": "CLASSIC",
+      "id": 420,
+      "isRanked": true,
+      "isTeamBuilderManaged": true,
+      "mapId": 11,
+      "maximumParticipantListSize": 2,
+      "minLevel": 30,
+      "minimumParticipantListSize": 1,
+      "name": "Ranked Solo/Duo",
+      "numPlayersPerTeam": 5,
+      "pickMode": "",
+      "queueAvailability": "Available",
+      "shortName": "Solo/Duo",
+      "showPositionSelector": true,
+      "spectatorEnabled": true,
+      "type": "RANKED_SOLO_5x5"
+    },
+    "spectatorsAllowed": false,
+    "teamOne": [],
+    "teamTwo": []
+  },
+  "gameDodge": {"dodgeIds": [], "phase": "None", "state": "Invalid"},
+  "map": {"gameMode": "CLASSIC", "id": 11, "name": "Summoner's Rift"},
+  "phase": "ChampSelect"
+}

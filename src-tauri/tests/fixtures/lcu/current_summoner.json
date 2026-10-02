@@ -1,0 +1,18 @@
+{
+  "accountId": 2345678901234567,
+  "displayName": "",
+  "gameName": "Yorick Main",
+  "internalName": "",
+  "nameChangeFlag": false,
+  "percentCompleteForNextLevel": 42,
+  "privacy": "PUBLIC",
+  "profileIconId": 6631,
+  "puuid": "9f0e8d7c-6b5a-4938-2716-05f4e3d2c1b0",
+  "rerollPoints": {"currentPoints": 250, "maxRolls": 2, "numberOfRolls": 0, "pointsCostToRoll": 250, "pointsToReroll": 0},
+  "summonerId": 123456789,
+  "summonerLevel": 312,
+  "tagLine": "EUW",
+  "unnamed": false,
+  "xpSinceLastLevel": 1200,
+  "xpUntilNextLevel": 2880
+}

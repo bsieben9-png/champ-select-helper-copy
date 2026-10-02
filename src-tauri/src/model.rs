@@ -93,24 +93,13 @@ impl Queue {
     }
 }
 
-/// Which summoner-spell slot Flash should go in.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum FlashSlot {
-    /// Keep Flash on whichever key it is currently on in the client.
-    #[default]
-    Auto,
-    D,
-    F,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Settings {
-    /// Automatically import runes/spells/item set when you lock in.
+    /// Automatically import runes + item set once, when you lock in.
+    /// (Summoner spells are never changed — recommendation only.)
     pub auto_import: bool,
     pub import_runes: bool,
-    pub import_spells: bool,
     pub import_item_set: bool,
     /// u.gg rank key, e.g. "emerald_plus", "overall", "master_plus".
     pub rank: String,
@@ -118,7 +107,6 @@ pub struct Settings {
     pub region: String,
     /// Ignore matchups with fewer games than this when ranking counters.
     pub min_games: u32,
-    pub flash_slot: FlashSlot,
     /// Champion ids the user plays.
     pub champion_pool: Vec<u32>,
     /// Only suggest counters from the champion pool.
@@ -130,12 +118,10 @@ impl Default for Settings {
         Settings {
             auto_import: true,
             import_runes: true,
-            import_spells: true,
             import_item_set: true,
             rank: "emerald_plus".into(),
             region: "world".into(),
             min_games: 100,
-            flash_slot: FlashSlot::Auto,
             champion_pool: Vec::new(),
             counters_pool_only: false,
         }
@@ -332,14 +318,25 @@ pub struct LcuStatus {
     pub phase: String,
 }
 
+/// A rune page in the League client.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RunePageRef {
+    pub id: u64,
+    pub name: String,
+}
+
 /// Result of importing a build into the client.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ImportResult {
     pub runes: bool,
-    pub spells: bool,
     pub item_set: bool,
     /// Human-readable notes/errors.
     pub messages: Vec<String>,
+    /// Set when runes were NOT imported because every rune page slot is
+    /// used (and there is no `CSH:` page to reuse): the user's current,
+    /// editable page that would be overwritten if they agree. Ask, then call
+    /// `import_build` again with `overwrite_page_id = Some(id)`.
+    pub needs_confirmation: Option<RunePageRef>,
 }
 
 /// Emitted as the `auto-imported` event after an automatic import.

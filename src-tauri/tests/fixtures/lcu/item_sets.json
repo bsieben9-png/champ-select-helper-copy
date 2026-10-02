@@ -1,0 +1,52 @@
+{
+  "accountId": 2345678901234567,
+  "itemSets": [
+    {
+      "associatedChampions": [83],
+      "associatedMaps": [11],
+      "blocks": [
+        {"hideIfSummonerSpell": "", "items": [{"count": 1, "id": "1054"}, {"count": 1, "id": "2003"}], "showIfSummonerSpell": "", "type": "Starting items"},
+        {"hideIfSummonerSpell": "", "items": [{"count": 1, "id": "6631"}, {"count": 1, "id": "3047"}, {"count": 1, "id": "3053"}], "showIfSummonerSpell": "", "type": "Core build (52% WR)"}
+      ],
+      "map": "any",
+      "mode": "any",
+      "preferredItemSlots": [],
+      "sortrank": 0,
+      "startedFrom": "blank",
+      "title": "CSH: Yorick vs Darius",
+      "type": "custom",
+      "uid": "0b5e0f1a-2c3d-4e5f-a6b7-c8d9e0f1a2b3"
+    },
+    {
+      "associatedChampions": [83],
+      "associatedMaps": [11, 12],
+      "blocks": [
+        {"hideIfSummonerSpell": "", "items": [{"count": 1, "id": "3078"}], "showIfSummonerSpell": "", "type": "My Yorick"}
+      ],
+      "map": "any",
+      "mode": "any",
+      "preferredItemSlots": [],
+      "sortrank": 1,
+      "startedFrom": "blank",
+      "title": "My own Yorick set",
+      "type": "custom",
+      "uid": "1c6f1a2b-3d4e-4f5a-b7c8-d9e0f1a2b3c4"
+    },
+    {
+      "associatedChampions": [887],
+      "associatedMaps": [11],
+      "blocks": [
+        {"hideIfSummonerSpell": "", "items": [{"count": 1, "id": "1056"}], "showIfSummonerSpell": "", "type": "Starting items"}
+      ],
+      "map": "any",
+      "mode": "any",
+      "preferredItemSlots": [],
+      "sortrank": 0,
+      "startedFrom": "blank",
+      "title": "CSH: Gwen Top",
+      "type": "custom",
+      "uid": "2d7a2b3c-4e5f-4a6b-c8d9-e0f1a2b3c4d5"
+    }
+  ],
+  "timestamp": 1790900000000
+}

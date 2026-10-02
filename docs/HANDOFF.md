@@ -21,7 +21,7 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
   tier list when lane opponent unknown (`get_tier_list`), "Import matchup build?" hint when the
   opponent appears after auto-import, source shown as "via u.gg", **ARAM Mayhem** queue +
   **Augments** section (`Build.augments`), Mayhem build kept visible while the game is InProgress.
-- **`wip/mayhem`**: ARAM Mayhem research + backend. Probably empty. Goal: find u.gg's (or
+- ~~`wip/mayhem`~~: MERGED into main (ignore the branch). Mayhem builds come from u.gg's normal_aram file (that's what u.gg's own Mayhem page uses); augments are a per-rarity ranking from `static.bigbrain.gg/custom-aram-mayhem/` (no win rates published). See DESIGN.md "ARAM Mayhem". Original notes: Goal: find u.gg's (or
   Lolalytics / OP.GG) ARAM Mayhem build + augment data, add `AugmentOption` + `Build.augments`
   (shape in `docs/HANDOFF.md` → below), map LCU queue 2400 (+2450) → Mayhem data. Leads are in CLAUDE.md.
   `AugmentOption { id, name, icon, rarity, description, games, win_rate, pick_rate }`.
@@ -34,7 +34,7 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
   smoke test under xvfb; write `docs/TESTING.md` with a manual Windows + League checklist.
 
 ## Next steps after that
-1. Finish/merge `wip/mayhem` → `main` (Rust `Build` still lacks `augments`; `types.ts` already has `AugmentOption`/`Build.augments`), resolve contract conflicts, run all checks, push.
+1. Merge the review/test results (branches `wip/review`, `wip/tests` if not on main yet). Optional: fill augment descriptions/pick rates from OP.GG's Mayhem page (sample in `src-tauri/tests/fixtures/other_sources/opgg_mayhem_augments_83.json`).
 2. Test on the Windows PC with League running (see the list in the LCU agent notes below).
 3. Lolalytics as a second source behind a source dropdown (CLAUDE.md "Ideas for later").
 

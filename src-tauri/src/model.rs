@@ -467,6 +467,9 @@ mod tests {
         assert!(Queue::AramMayhem.is_aram());
         assert!(Queue::Swiftplay.is_lobby_pick() && !Queue::Swiftplay.is_aram());
         assert!(!Queue::NormalDraft.is_lobby_pick() && !Queue::AramMayhem.is_lobby_pick());
-        assert_eq!(serde_json::to_string(&Queue::Swiftplay).unwrap(), "\"swiftplay\"");
+        assert_eq!(
+            serde_json::to_string(&Queue::Swiftplay).unwrap(),
+            "\"swiftplay\""
+        );
     }
 }

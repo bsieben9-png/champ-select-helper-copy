@@ -53,8 +53,8 @@ impl LobbyWatcher {
         let state = app.state::<AppState>();
         let status = state.lcu_status.read().await.clone();
         let client = state.lcu.read().await.clone();
-        let Some(client) = client
-            .filter(|_| status.connected && LOBBY_PHASES.contains(&status.phase.as_str()))
+        let Some(client) =
+            client.filter(|_| status.connected && LOBBY_PHASES.contains(&status.phase.as_str()))
         else {
             // Champ select, in game, client closed: no lobby to show.
             set_lobby(app, LobbyState::default()).await;

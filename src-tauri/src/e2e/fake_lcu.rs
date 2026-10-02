@@ -200,8 +200,8 @@ impl FakeState {
     /// the client, the slot also gets the default skin and the last rune page
     /// used for that champion and position.
     pub fn user_picks_in_slot(&mut self, index: usize, champion: i64) {
-        let slot = &mut self.lobby.as_mut().expect("in a lobby")["localMember"]["playerSlots"]
-            [index];
+        let slot =
+            &mut self.lobby.as_mut().expect("in a lobby")["localMember"]["playerSlots"][index];
         slot["championId"] = json!(champion);
         slot["skinId"] = json!(champion * 1000);
         slot["perks"] = json!(users_last_used_perks());
@@ -276,12 +276,10 @@ impl FakeState {
                 Some(l) => (200, l.clone()),
                 None => not_found("LOBBY_NOT_FOUND"),
             },
-            ("GET", "/lol-lobby/v1/lobby/members/localMember/player-slots") => {
-                match &self.lobby {
-                    Some(l) => (200, l["localMember"]["playerSlots"].clone()),
-                    None => not_found("LOBBY_NOT_FOUND"),
-                }
-            }
+            ("GET", "/lol-lobby/v1/lobby/members/localMember/player-slots") => match &self.lobby {
+                Some(l) => (200, l["localMember"]["playerSlots"].clone()),
+                None => not_found("LOBBY_NOT_FOUND"),
+            },
             (_, p) if p.starts_with("/lol-lobby/") || p.starts_with("/lol-matchmaking/") => {
                 // Writing to the lobby / queue: recorded so tests can assert
                 // it never happens (owner rule).
@@ -583,7 +581,6 @@ async fn serve_one(
     write.shutdown().await
 }
 
-
 // ---------------------------------------------------------------------------
 // Scripted champ select sessions
 // ---------------------------------------------------------------------------
@@ -641,11 +638,11 @@ pub struct Draft {
 impl Draft {
     /// Ranked solo/duo, me = cell 2 (top), planning phase: nothing picked yet.
     pub fn ranked() -> Draft {
-        Draft::draft(420)
+        Draft::with_queue(420)
     }
 
     /// Any draft queue with bans and assigned positions (420, 440, 400).
-    pub fn draft(queue_id: i64) -> Draft {
+    pub fn with_queue(queue_id: i64) -> Draft {
         Draft {
             queue_id,
             local_cell: 2,
@@ -669,7 +666,7 @@ impl Draft {
 
     /// Normal blind pick (430): no assigned positions, simultaneous picks.
     pub fn blind() -> Draft {
-        let mut d = Draft::draft(430);
+        let mut d = Draft::with_queue(430);
         d.kind = Kind::Blind;
         d.timer_phase = "BAN_PICK";
         d.bans.clear();
@@ -708,7 +705,7 @@ impl Draft {
     /// from the lobby slots. (Exact content only known from the schema: the
     /// replacement screen hides it in the real client.)
     pub fn swiftplay(queue_id: i64, my_champion: u32, my_position: &'static str) -> Draft {
-        let mut d = Draft::draft(queue_id);
+        let mut d = Draft::with_queue(queue_id);
         d.kind = Kind::Skip;
         d.timer_phase = "FINALIZATION";
         d.bans.clear();
@@ -920,20 +917,21 @@ impl Draft {
             .collect();
 
         let mut id = 0;
-        let mut action = |actor: i64, champ: u32, completed: bool, in_progress: bool, kind: &str, turn: i64| {
-            id += 1;
-            json!({
-                "actorCellId": actor,
-                "championId": champ,
-                "completed": completed,
-                "duration": 0,
-                "id": id,
-                "isAllyAction": actor < 5,
-                "isInProgress": in_progress,
-                "pickTurn": turn,
-                "type": kind,
-            })
-        };
+        let mut action =
+            |actor: i64, champ: u32, completed: bool, in_progress: bool, kind: &str, turn: i64| {
+                id += 1;
+                json!({
+                    "actorCellId": actor,
+                    "championId": champ,
+                    "completed": completed,
+                    "duration": 0,
+                    "id": id,
+                    "isAllyAction": actor < 5,
+                    "isInProgress": in_progress,
+                    "pickTurn": turn,
+                    "type": kind,
+                })
+            };
         let actions: Vec<Value> = match self.kind {
             Kind::Draft => {
                 let mut turns = Vec::new();
@@ -944,7 +942,14 @@ impl Draft {
                         .map(|&(c, ch, done, prog)| action(c, ch, done, prog, "ban", 1))
                         .collect(),
                 ));
-                turns.push(json!([action(-1, 0, bans_done, false, "ten_bans_reveal", 1)]));
+                turns.push(json!([action(
+                    -1,
+                    0,
+                    bans_done,
+                    false,
+                    "ten_bans_reveal",
+                    1
+                )]));
                 for (t, cells) in DRAFT_PICK_TURNS.iter().enumerate() {
                     turns.push(Value::Array(
                         cells

@@ -1381,6 +1381,132 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn mayhem_session_with_bench_and_rerolls() {
+        let mut session = fixture("champ_select_aram.json");
+        session["queueId"] = json!(2400);
+        let cs = parse_champ_select(&session, Some(2400), &roles());
+        assert_eq!(cs.queue, Some(Queue::AramMayhem));
+        assert_eq!((cs.my_champion_id, cs.my_role), (Some(83), None));
+        assert!(
+            cs.my_champion_locked,
+            "assigned champion counts as the pick"
+        );
+        // Bench champions are not mine and not enemies.
+        assert!(cs.enemies.is_empty());
+        assert!(cs
+            .allies
+            .iter()
+            .all(|a| a.champion_id != 22 && a.champion_id != 201));
+        // Bench swap / reroll: a new champion id.
+        session["myTeam"][2]["championId"] = json!(22);
+        let cs = parse_champ_select(&session, Some(2400), &roles());
+        assert_eq!(cs.my_champion_id, Some(22));
+        assert!(cs.my_champion_locked);
+        // The moment of a swap without a champion: nothing locked.
+        session["myTeam"][2]["championId"] = json!(0);
+        let cs = parse_champ_select(&session, Some(2400), &roles());
+        assert_eq!(cs.my_champion_id, None);
+        assert!(!cs.my_champion_locked);
+    }
+
+    /// Swiftplay's short "skip champion select" step: the champion comes from
+    /// the lobby slot; nothing is locked in, so the watcher never auto-imports
+    /// over the runes the user picked for that slot.
+    #[test]
+    fn swiftplay_skip_champ_select_is_never_locked() {
+        let mut session = fixture("champ_select_aram.json");
+        session["benchEnabled"] = json!(false);
+        session["benchChampions"] = json!([]);
+        session["skipChampionSelect"] = json!(true);
+        session["myTeam"][2]["assignedPosition"] = json!("top");
+        for queue in [480, 490] {
+            let cs = parse_champ_select(&session, Some(queue), &roles());
+            assert_eq!(cs.queue, Some(Queue::Swiftplay));
+            assert_eq!((cs.my_champion_id, cs.my_role), (Some(83), Some(Top)));
+            assert!(!cs.my_champion_locked, "queue {queue}");
+        }
+        // Even without the flag: a lobby-pick queue without pick actions.
+        session["skipChampionSelect"] = json!(false);
+        assert!(!parse_champ_select(&session, Some(480), &roles()).my_champion_locked);
+        // The flag alone (any queue) also means nothing to lock.
+        session["skipChampionSelect"] = json!(true);
+        assert!(!parse_champ_select(&session, Some(450), &roles()).my_champion_locked);
+    }
+
+    #[test]
+    fn swiftplay_lobby_slots() {
+        let lobby = parse_lobby(&fixture("lobby_swiftplay.json"));
+        assert!(lobby.in_lobby);
+        assert_eq!(
+            (lobby.queue_id, lobby.queue),
+            (Some(480), Some(Queue::Swiftplay))
+        );
+        assert_eq!(
+            lobby.slots,
+            vec![
+                LobbySlot {
+                    index: 0,
+                    champion_id: Some(83),
+                    role: Some(Top)
+                },
+                // -1 = no champion, FILL = no role.
+                LobbySlot {
+                    index: 1,
+                    champion_id: None,
+                    role: None
+                },
+            ]
+        );
+
+        // Quickplay (490) reports game mode CLASSIC; positions in any case.
+        let mut quick = fixture("lobby_swiftplay.json");
+        quick["gameConfig"]["queueId"] = json!(490);
+        quick["gameConfig"]["gameMode"] = json!("CLASSIC");
+        quick["localMember"]["playerSlots"][1]["championId"] = json!(103);
+        quick["localMember"]["playerSlots"][1]["positionPreference"] = json!("MIDDLE");
+        let lobby = parse_lobby(&quick);
+        assert_eq!(lobby.queue, Some(Queue::Swiftplay));
+        assert_eq!(lobby.slots[1].champion_id, Some(103));
+        assert_eq!(lobby.slots[1].role, Some(Mid));
+        for (pos, role) in [
+            ("JUNGLE", Some(Jungle)),
+            ("BOTTOM", Some(Adc)),
+            ("UTILITY", Some(Support)),
+            ("UNSELECTED", None),
+            ("", None),
+        ] {
+            quick["localMember"]["playerSlots"][0]["positionPreference"] = json!(pos);
+            assert_eq!(parse_lobby(&quick).slots[0].role, role, "{pos}");
+        }
+
+        // An unknown lobby-pick queue id still counts (slot selection shown).
+        quick["gameConfig"]["queueId"] = json!(499);
+        let lobby = parse_lobby(&quick);
+        assert_eq!(
+            (lobby.queue_id, lobby.queue),
+            (Some(499), Some(Queue::Swiftplay))
+        );
+        assert_eq!(lobby.slots.len(), 2);
+    }
+
+    #[test]
+    fn other_lobbies_have_no_slots() {
+        for queue in [420, 440, 400, 2400] {
+            let mut lobby = fixture("lobby_swiftplay.json");
+            lobby["gameConfig"]["queueId"] = json!(queue);
+            lobby["gameConfig"]["showQuickPlaySlotSelection"] = json!(false);
+            let state = parse_lobby(&lobby);
+            assert!(state.in_lobby);
+            assert_eq!(state.queue, Queue::from_lcu_queue_id(queue));
+            assert!(state.slots.is_empty(), "{queue}");
+        }
+        for junk in [json!(null), json!({}), json!([]), json!({"gameConfig": 5})] {
+            let state = parse_lobby(&junk);
+            assert_eq!((state.queue, state.slots.len()), (None, 0));
+        }
+    }
+
+    #[test]
     fn unknown_queue_and_garbage_input() {
         let cs = parse_champ_select(&fixture("champ_select_ranked.json"), None, &roles());
         assert_eq!(cs.queue, None);

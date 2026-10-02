@@ -26,6 +26,7 @@ export const QUEUE_LABEL: Record<Queue, string> = {
   ranked_flex: "Ranked Flex",
   normal_draft: "Normal Draft",
   normal_blind: "Normal Blind",
+  swiftplay: "Swiftplay",
   aram: "ARAM",
   aram_mayhem: "ARAM Mayhem",
 };
@@ -39,9 +40,22 @@ export const LOOKUP_QUEUES: { value: Queue; label: string }[] = [
   { value: "aram_mayhem", label: "ARAM Mayhem" },
 ];
 
+/** Queue name for a client queue id: 490-493 is the old Quickplay. */
+export function queueLabel(q: Queue | null | undefined, queueId?: number | null): string {
+  if (!q) return "";
+  if (q === "swiftplay" && queueId != null && queueId >= 490 && queueId <= 493) return "Quickplay";
+  return QUEUE_LABEL[q];
+}
+
+/** Champions are picked in the lobby (no champ select to lock in). */
+export const isLobbyPick = (q: Queue | null | undefined) => q === "swiftplay";
+
+/** Gameflow phases before champ select, while the lobby exists. */
+export const isLobbyPhase = (phase: string) => ["Lobby", "Matchmaking", "ReadyCheck"].includes(phase);
+
 /** Map any queue onto the ones Lookup offers. */
 export function lookupQueue(q: Queue): Queue {
-  if (q === "normal_blind") return "normal_draft";
+  if (q === "normal_blind" || q === "swiftplay") return "normal_draft";
   if (q === "aram") return "aram_mayhem";
   return q;
 }

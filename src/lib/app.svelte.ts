@@ -1,6 +1,6 @@
 // Global app state (Svelte 5 runes). One instance, imported as `app`.
 import * as api from "./api";
-import { errorMessage, joinAnd, lookupQueue } from "./format";
+import { errorMessage, isLobbyPhase, joinAnd, lookupQueue } from "./format";
 import type {
   AutoImportEvent,
   Build,
@@ -9,6 +9,8 @@ import type {
   ImportResult,
   ItemInfo,
   LcuStatus,
+  LobbySlot,
+  LobbyState,
   Queue,
   Role,
   RuneInfo,
@@ -46,6 +48,8 @@ const EMPTY_CS: ChampSelectState = {
   bans: [],
 };
 
+const EMPTY_LOBBY: LobbyState = { in_lobby: false, queue_id: null, queue: null, slots: [] };
+
 /** Settings keys that change what the stats endpoints return. */
 const STAT_KEYS: (keyof Settings)[] = [
   "source",
@@ -64,6 +68,11 @@ class AppState {
   settings = $state.raw<Settings | null>(null);
   lcu = $state.raw<LcuStatus>({ connected: false, summoner_name: null, phase: "None" });
   cs = $state.raw<ChampSelectState>(EMPTY_CS);
+  /** The lobby before queueing (my Swiftplay / Quickplay slots). */
+  lobby = $state.raw<LobbyState>(EMPTY_LOBBY);
+  /** My last Swiftplay / Quickplay slots (kept after the lobby view closes:
+   *  the skip-champ-select step may not say which position I got). */
+  lastSlots = $state.raw<LobbySlot[]>([]);
   toasts = $state<Toast[]>([]);
   /** Pending "all rune pages are full — overwrite?" question. */
   overwrite = $state.raw<{
@@ -77,6 +86,10 @@ class AppState {
    *  runs once at lock-in; Live uses this to offer a manual re-import when
    *  the lane opponent only becomes known afterwards. */
   imported = $state.raw<{ championId: number; opponentId: number | null; auto: boolean } | null>(null);
+  /** Every champion imported in this champ select (ARAM rerolls/bench swaps,
+   *  trades): Live offers a manual import when the current one isn't the
+   *  last imported. */
+  importedChamps = $state.raw<Set<number>>(new Set());
   /** My champion/queue from the last champ select — the build stays visible
    *  in Live while the game runs (Mayhem augments are picked mid-game). */
   lastPick = $state.raw<{ championId: number; queue: Queue; role: Role | null; opponentId: number | null } | null>(
@@ -114,7 +127,8 @@ class AppState {
 
   async init() {
     await Promise.all([
-      api.onLcuStatus((s) => (this.lcu = s)),
+      api.onLcuStatus((s) => this.#setLcu(s)),
+      api.onLobby((s) => this.#setLobby(s)),
       api.onChampSelect((s) => this.#setChampSelect(s)),
       api.onAutoImported((e) => this.#onAutoImported(e)),
     ]).catch((e) => this.toast("error", "Couldn't subscribe to app events", errorMessage(e)));
@@ -123,9 +137,22 @@ class AppState {
       (s) => (this.settings = s),
       (e) => this.toast("error", "Couldn't load settings", errorMessage(e)),
     );
-    api.getLcuStatus().then((s) => (this.lcu = s), () => {});
+    api.getLcuStatus().then((s) => this.#setLcu(s), () => {});
+    api.getLobby().then((s) => this.#setLobby(s), () => {});
     api.getChampSelect().then((s) => this.#setChampSelect(s), () => {});
     this.loadStatic();
+  }
+
+  #setLcu(s: LcuStatus) {
+    // Back in the lobby / queue: a new game. The in-game view must not show
+    // the previous game's champion if this game's champ select is missed.
+    if (isLobbyPhase(s.phase)) this.lastPick = null;
+    this.lcu = s;
+  }
+
+  #setLobby(s: LobbyState) {
+    if (s.slots.length) this.lastSlots = s.slots;
+    this.lobby = s;
   }
 
   #setChampSelect(s: ChampSelectState) {
@@ -140,6 +167,7 @@ class AppState {
       }
     } else {
       this.imported = null;
+      if (this.importedChamps.size) this.importedChamps = new Set();
     }
     this.cs = s;
   }
@@ -210,7 +238,10 @@ class AppState {
     const parts = [result.runes && "runes", result.item_set && "item set"].filter((p): p is string => !!p);
     const label = this.matchupLabel(championId, opponentId);
     const tag = auto ? "Auto-import" : undefined;
-    if (this.cs.in_champ_select) this.imported = { championId, opponentId, auto };
+    if (this.cs.in_champ_select) {
+      this.imported = { championId, opponentId, auto };
+      if (result.runes || result.item_set) this.importedChamps = new Set([...this.importedChamps, championId]);
+    }
     if (result.needs_confirmation) {
       // Rune pages are full: ask first (modal), report the rest now.
       this.overwrite = { page: result.needs_confirmation, championId, opponentId, getBuild };

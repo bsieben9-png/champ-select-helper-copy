@@ -10,7 +10,17 @@
   import Spinner from "../lib/components/Spinner.svelte";
   import TierList from "../lib/components/TierList.svelte";
   import Toggle from "../lib/components/Toggle.svelte";
-  import { QUEUE_LABEL, ROLE_LABEL, errorMessage, isAram, isInGamePhase, phaseLabel } from "../lib/format";
+  import {
+    QUEUE_LABEL,
+    ROLE_LABEL,
+    errorMessage,
+    isAram,
+    isInGamePhase,
+    isLobbyPhase,
+    isLobbyPick,
+    phaseLabel,
+    queueLabel,
+  } from "../lib/format";
   import { tip } from "../lib/tooltip";
   import { ROLES, type Build, type Queue, type Role } from "../lib/types";
 
@@ -23,12 +33,17 @@
   let importing = $state(false);
   let hintBusy = $state(false);
   let hintDismissed = $state<number | null>(null);
+  /** Champion for which the "imported runes are for another champion" hint was dismissed. */
+  let otherDismissed = $state<number | null>(null);
+  /** Swiftplay lobby: the slot whose build is shown. */
+  let slotPick = $state(0);
 
   $effect(() => {
     if (!cs.in_champ_select) {
       override = null;
       roleOverride = null;
       hintDismissed = null;
+      otherDismissed = null;
     }
   });
   $effect(() => {
@@ -37,16 +52,41 @@
 
   const queue = $derived<Queue>(cs.queue ?? "ranked_solo");
   const aram = $derived(isAram(queue));
+  const lobbyPick = $derived(isLobbyPick(queue));
   const myChamp = $derived(cs.my_champion_id || null);
   const opponentId = $derived(aram ? null : (override ?? cs.lane_opponent_id ?? null));
   const opponentPick = $derived(cs.enemies.find((e) => e.champion_id === opponentId));
-  const myRole = $derived<Role | null>(aram ? null : (roleOverride ?? cs.my_role ?? opponentPick?.role ?? null));
+  // Swiftplay: the position of my lobby slot with this champion, if the
+  // skip-champ-select step doesn't say.
+  const slotRole = $derived(
+    lobbyPick ? (app.lastSlots.find((s) => s.champion_id === myChamp)?.role ?? null) : null,
+  );
+  const myRole = $derived<Role | null>(
+    aram ? null : (roleOverride ?? cs.my_role ?? slotRole ?? opponentPick?.role ?? null),
+  );
   const counterRole = $derived<Role | null>(
     myRole ?? (opponentId ? (app.champs.get(opponentId)?.roles[0] ?? null) : null),
   );
   const bans = $derived(cs.bans.filter((b) => b > 0));
   // While the game runs, keep showing the build picked in champ select.
   const inGame = $derived(!cs.in_champ_select && isInGamePhase(app.lcu.phase));
+  // Swiftplay / Quickplay lobby: champions are picked here, per position.
+  const lobby = $derived(app.lobby);
+  const inLobby = $derived(
+    !cs.in_champ_select && isLobbyPhase(app.lcu.phase) && lobby.in_lobby && lobby.slots.length > 0,
+  );
+  const shownSlot = $derived(
+    lobby.slots.find((s) => s.index === slotPick && s.champion_id) ?? lobby.slots.find((s) => s.champion_id),
+  );
+  // A new slot: show its own position's build.
+  $effect(() => {
+    void shownSlot?.index;
+    void shownSlot?.champion_id;
+    roleOverride = null;
+  });
+  // Before locking in (draft queues): counters vs the lane opponent, or the
+  // tier list for my role while the opponent is unknown, under the build.
+  const beforePick = $derived(!!myChamp && !cs.my_champion_locked && !aram && !lobbyPick);
 
   // Auto-import runs once at lock-in. If the lane opponent shows up later,
   // offer (never perform) a manual import of the matchup build.
@@ -56,6 +96,18 @@
     if (!imp || !myChamp || !cs.my_champion_locked || !opp || aram) return null;
     if (imp.championId !== myChamp || imp.opponentId === opp || hintDismissed === opp) return null;
     return opp;
+  });
+
+  // The last import was for another champion (a trade after lock-in, or an
+  // ARAM bench swap back to a champion imported earlier): offer — never
+  // perform — an import for the champion I have now. In ARAM a champion not
+  // imported yet is imported by auto-import itself (when on).
+  const otherImport = $derived.by(() => {
+    const imp = app.imported;
+    if (!imp || !myChamp || !cs.my_champion_locked || imp.championId === myChamp) return null;
+    if (aram && app.settings?.auto_import && !app.importedChamps.has(myChamp)) return null;
+    if (otherDismissed === myChamp) return null;
+    return imp.championId;
   });
 
   function clickEnemy(id: number) {
@@ -69,11 +121,11 @@
     importing = false;
   }
 
-  async function importLate(opp: number) {
+  async function importLate(opp: number | null) {
     if (!myChamp) return;
     hintBusy = true;
     try {
-      const build = await api.getBuild(myChamp, myRole, opp, queue);
+      const build = await api.getBuild(myChamp, aram ? null : myRole, aram ? null : opp, queue);
       await app.importBuild(build);
     } catch (e) {
       app.toast("error", "Couldn't load the matchup build", errorMessage(e));
@@ -113,7 +165,7 @@
   {@const p = app.lastPick}
   <div class="live">
     <div class="cs-bar">
-      <span class="eyebrow">In game · {QUEUE_LABEL[p.queue]}</span>
+      <span class="eyebrow">In game · {queueLabel(p.queue)}</span>
       <span class="faint small">Build from champ select{isAram(p.queue) ? " — pick augments with the list below" : ""}</span>
     </div>
     <BuildPanel
@@ -124,6 +176,73 @@
       showRoleTabs={false}
       status="In game"
     />
+  </div>
+{:else if inLobby}
+  <div class="live">
+    <div class="cs-bar">
+      <span class="eyebrow">{queueLabel(lobby.queue, lobby.queue_id)} · {phaseLabel(app.lcu.phase)}</span>
+      <span class="faint small">No champ select in this mode — your champions are picked here, per position</span>
+    </div>
+    <div class="slots" role="tablist" aria-label="Your positions">
+      {#each lobby.slots as s (s.index)}
+        <button
+          role="tab"
+          class="slot"
+          class:active={shownSlot?.index === s.index}
+          aria-selected={shownSlot?.index === s.index}
+          disabled={!s.champion_id}
+          onclick={() => (slotPick = s.index)}
+        >
+          <span class="portrait small-portrait">
+            {#if s.champion_id}
+              <ChampIcon id={s.champion_id} size={34} tooltip={false} />
+            {:else}
+              <RoleIcon role={s.role} size={18} />
+            {/if}
+          </span>
+          <span class="slot-text">
+            <span class="tname">{s.champion_id ? app.champName(s.champion_id) : "No champion yet"}</span>
+            <span class="trole">
+              {#if s.role}<RoleIcon role={s.role} size={11} />{ROLE_LABEL[s.role]}{:else}Fill{/if}
+              · {s.index === 0 ? "1st" : "2nd"} position
+            </span>
+          </span>
+        </button>
+      {/each}
+    </div>
+    {#if shownSlot?.champion_id}
+      <BuildPanel
+        championId={shownSlot.champion_id}
+        role={roleOverride ?? shownSlot.role}
+        opponentId={null}
+        queue={lobby.queue ?? "swiftplay"}
+        onRole={(r) => (roleOverride = r)}
+        status="Picked in lobby"
+      >
+        {#snippet actions(build)}
+          <button
+            class="btn primary"
+            disabled={!build || importing}
+            onclick={() => build && importShown(build)}
+            use:tip={{
+              title: "Import rune page & item set",
+              body: "Creates a \"CSH:\" rune page and an item set. Then choose that rune page for this position in the client's lobby. The app never changes your lobby picks or summoner spells.",
+            }}
+          >
+            {#if importing}<Spinner size={12} />{/if}Import
+          </button>
+        {/snippet}
+      </BuildPanel>
+      <p class="faint small lobby-note">
+        Auto-import doesn't run in the lobby. Press <b>Import</b>, then pick the <b>CSH:</b> rune page for this
+        position in the client.
+      </p>
+    {:else}
+      <Notice
+        title="Pick a champion for each position"
+        detail="Choose your champions in the client's lobby: their builds show up here."
+      />
+    {/if}
   </div>
 {:else if !cs.in_champ_select}
   <div class="center">
@@ -138,7 +257,7 @@
 {:else}
   <div class="live">
     <div class="cs-bar">
-      <span class="eyebrow">{cs.queue ? QUEUE_LABEL[cs.queue] : "Champ select"}</span>
+      <span class="eyebrow">{cs.queue ? queueLabel(cs.queue, cs.queue_id) : "Champ select"}</span>
       {#if cs.my_role}
         <span class="you"><RoleIcon role={cs.my_role} size={14} /> You're {ROLE_LABEL[cs.my_role]}</span>
       {/if}
@@ -159,7 +278,7 @@
       {/if}
     </div>
 
-    <div class="teams">
+    <div class="teams" class:solo={cs.enemies.length === 0}>
       <div class="team allies" aria-label="Your team">
         {#each cs.allies as a, i (i)}
           <div class="tile" class:me={a.is_me} class:empty={!a.champion_id} class:hover={a.is_me && !cs.my_champion_locked}>
@@ -178,6 +297,7 @@
         {/each}
       </div>
 
+      {#if cs.enemies.length}
       <div class="vs" aria-hidden="true"><span class="diamond"><span>VS</span></span></div>
 
       <div class="team enemies" aria-label="Enemy team">
@@ -214,6 +334,7 @@
           </button>
         {/each}
       </div>
+      {/if}
     </div>
 
     {#if myChamp}
@@ -230,28 +351,45 @@
           </button>
         </div>
       {/if}
+      {#if otherImport && !lateOpponent}
+        <div class="hint" role="status">
+          <ChampIcon id={myChamp} size={24} />
+          <span>Your imported runes are for <b>{app.champName(otherImport)}</b> — Import <b>{app.champName(myChamp)}</b>?</span>
+          <span class="spacer"></span>
+          <button class="btn small primary" disabled={hintBusy} onclick={() => importLate(opponentId)}>
+            {#if hintBusy}<Spinner size={11} />{/if}Import
+          </button>
+          <button class="icon-btn" aria-label="Dismiss" onclick={() => (otherDismissed = myChamp)}>
+            <svg viewBox="0 0 24 24" width="11" height="11"><path d="M5 5l14 14M19 5 5 19" stroke="currentColor" stroke-width="2.6" /></svg>
+          </button>
+        </div>
+      {/if}
       <BuildPanel
         championId={myChamp}
         role={myRole}
         {opponentId}
         {queue}
         onRole={(r) => (roleOverride = r)}
-        status={cs.my_champion_locked ? "Locked in" : "Hovering"}
+        status={cs.my_champion_locked ? "Locked in" : lobbyPick ? "Picked in lobby" : "Hovering"}
       >
         {#snippet actions(build)}
-          <span
-            use:tip={{
-              title: "Auto-import",
-              body: "Imports runes & item set once when you lock in. After that, nothing changes unless you press Import.",
-            }}
-          >
-            <Toggle
-              label="Auto-import"
-              checked={app.settings?.auto_import ?? false}
-              disabled={!app.settings}
-              onchange={(v) => app.updateSettings({ auto_import: v })}
-            />
-          </span>
+          {#if !lobbyPick}
+            <span
+              use:tip={{
+                title: "Auto-import",
+                body: aram
+                  ? "Imports runes & item set once for each champion you get (reroll / bench swap). Your own edits are never overwritten for the same champion."
+                  : "Imports runes & item set once when you lock in. After that, nothing changes unless you press Import.",
+              }}
+            >
+              <Toggle
+                label="Auto-import"
+                checked={app.settings?.auto_import ?? false}
+                disabled={!app.settings}
+                onchange={(v) => app.updateSettings({ auto_import: v })}
+              />
+            </span>
+          {/if}
           <button
             class="btn primary"
             disabled={!build || importing}
@@ -262,6 +400,23 @@
           </button>
         {/snippet}
       </BuildPanel>
+      {#if beforePick && opponentId && counterRole}
+        <CounterGrid enemyId={opponentId} role={counterRole} {queue} limit={10}>
+          {#snippet title()}
+            <span class="eyebrow">Not locked yet · counter picks vs</span>
+            <ChampIcon id={opponentId} size={22} />
+            <span class="sec-name">{app.champName(opponentId)}</span>
+            <span class="faint">· {ROLE_LABEL[counterRole]}</span>
+          {/snippet}
+        </CounterGrid>
+      {:else if beforePick && myRole}
+        <TierList role={myRole} {queue} limit={10}>
+          {#snippet title()}
+            <span class="eyebrow">Not locked yet · tier list — {ROLE_LABEL[myRole]}</span>
+            <span class="faint small">Enemy {ROLE_LABEL[myRole].toLowerCase()} hasn't picked yet</span>
+          {/snippet}
+        </TierList>
+      {/if}
     {:else if aram}
       <Notice
         title={QUEUE_LABEL[queue]}
@@ -411,9 +566,52 @@
     border-color: #2a1b20;
     background: linear-gradient(180deg, #120f1d, #0b0d1a);
   }
+  .teams.solo {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 560px;
+  }
   .vs {
     display: grid;
     place-items: center;
+  }
+  .slots {
+    display: flex;
+    gap: 8px;
+  }
+  .slot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 200px;
+    padding: 6px 12px 6px 6px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    color: inherit;
+    text-align: left;
+  }
+  .slot.active {
+    border-color: var(--gold);
+    box-shadow: 0 0 10px rgba(200, 155, 60, 0.3);
+  }
+  .slot:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+  .small-portrait {
+    width: 36px;
+    height: 36px;
+  }
+  .slot-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .lobby-note {
+    margin: 0;
+  }
+  .lobby-note b {
+    color: var(--text);
   }
   .diamond {
     display: grid;

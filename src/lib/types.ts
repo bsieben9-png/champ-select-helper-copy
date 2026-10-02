@@ -8,6 +8,8 @@ export type Queue =
   | "ranked_flex"
   | "normal_draft"
   | "normal_blind"
+  /** Swiftplay (480) / old Quickplay (490): champions picked in the lobby. */
+  | "swiftplay"
   | "aram"
   | "aram_mayhem";
 
@@ -193,6 +195,26 @@ export interface ChampSelectState {
   enemies: EnemyPick[];
   lane_opponent_id: number | null;
   bans: number[];
+}
+
+/** One of my Swiftplay / Quickplay lobby slots (champion + position picked
+ *  before queueing). */
+export interface LobbySlot {
+  /** Index in the client's playerSlots (0 = primary position). */
+  index: number;
+  champion_id: number | null;
+  /** null for FILL / UNSELECTED. */
+  role: Role | null;
+}
+
+/** The lobby before queueing (`lobby` event), Lobby / Matchmaking / ReadyCheck. */
+export interface LobbyState {
+  in_lobby: boolean;
+  queue_id: number | null;
+  queue: Queue | null;
+  /** Swiftplay / Quickplay only (empty otherwise). Read only: the app never
+   *  changes the lobby. */
+  slots: LobbySlot[];
 }
 
 export interface LcuStatus {

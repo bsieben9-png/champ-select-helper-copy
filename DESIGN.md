@@ -19,6 +19,15 @@ counter-picks when you see an enemy champion, before you've picked.
 | Items | Full build (starting, core, 4th/5th/6th options, skill order) **plus** push an in-game **item set** to the client. |
 | Look | League-style dark: deep navy, gold accents, champion/rune/item icons. |
 | Extras | **My champion pool** (counters from your pool shown first/highlighted); **Manual lookup** mode (works with League closed). |
+| Rune pages full | **Ask first**: never overwrite a user page silently. The app's own `CSH:` pages are reused freely. |
+| Import timing | **On lock-in**; re-import if the lane opponent changes (e.g. they lock after you). |
+| Blind / first pick | Show the **tier list for my role** until the lane opponent is visible. |
+| Flash | **Keep it on whichever key** it's currently on. |
+| Data sources | u.gg now. Later: a **source dropdown** (Lolalytics first). A "Consensus" entry may come after that. Builds carry a `source` field. |
+
+Tier list: `{base}/champion_ranking/{regionKey}/{patch}/{queue}/{rankKey}/{ver}.json`. Note this one uses
+**string** keys (`world`, `emerald_plus`), not numeric ids. Format: `[ {roleName: [row...]}, {champId: bans}, "timestamp", totalMatches ]`,
+row = `["champId", [[oppId, wins, games] x10], wins, games, ...]`.
 
 ## How it works
 

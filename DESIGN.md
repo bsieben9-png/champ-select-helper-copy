@@ -1,0 +1,134 @@
+# Champ Select Helper — Design
+
+A small, fast Windows app for League of Legends champ select. It recommends
+runes, summoner spells, items and skill order, both in general and **for
+your specific lane matchup** (e.g. Yorick vs Gwen). It also suggests easy
+counter-picks when you see an enemy champion, before you've picked.
+
+## Decisions (from the owner)
+
+| Topic | Decision |
+|---|---|
+| Tech | **Tauri 2** (Rust backend + Svelte 5/TypeScript UI). Target: Windows 10/11 (WebView2). |
+| Import into client | **Auto-import** (toggle on/off in settings) **and** a manual **Import** button. |
+| Window | Normal window. |
+| Stats | **Emerald+**, **World** by default; both changeable in Settings. |
+| Counters | Highest win rate vs the enemy in that role, ignoring matchups below a **minimum games** threshold. |
+| Jungle / Support | **Role vs role** (jungle vs enemy jungler, support vs enemy support). |
+| Modes | Ranked Solo/Duo, Normal Draft/Flex (use ranked solo data), ARAM. **ARAM Mayhem**: later (data source not located yet; fall back to ARAM). |
+| Items | Full build (starting, core, 4th/5th/6th options, skill order) **plus** push an in-game **item set** to the client. |
+| Look | League-style dark: deep navy, gold accents, champion/rune/item icons. |
+| Extras | **My champion pool** (counters from your pool shown first/highlighted); **Manual lookup** mode (works with League closed). |
+
+## How it works
+
+```
+ ┌──────────────── Windows PC ────────────────┐
+ │  League Client ──(local LCU API, HTTPS)──┐ │
+ │                                           ▼ │       stats2.u.gg (JSON)
+ │  Champ Select Helper  ─ Rust backend ────────────►  ddragon (names/icons)
+ │        ▲                    │               │
+ │        └── Svelte UI ◄──────┘ events        │
+ └─────────────────────────────────────────────┘
+```
+
+1. **Find the client.** Locate the running `LeagueClientUx.exe` and read the
+   `lockfile` in the League install folder (`LeagueClient:pid:port:password:https`).
+   Fall back to `C:\Riot Games\League of Legends\lockfile`.
+2. **Watch champ select.** Poll `GET /lol-champ-select/v1/session` (~1 s) and
+   `GET /lol-gameflow/v1/session` (queue id). Build a `ChampSelectState`, emit it
+   to the UI as the `champ-select` event when it changes.
+3. **Work out the lane opponent.** Your role comes from `assignedPosition`.
+   Enemy roles are hidden in champ select, so assign enemy champions to roles
+   using u.gg `primary_roles` (each champ's roles in order of popularity), with
+   a best-fit assignment across the 5 enemies. The user can override by
+   clicking an enemy.
+4. **Fetch data from u.gg**, cache it on disk per patch.
+5. **Auto-import** (when on): once your champion is **locked**, push the rune
+   page, summoner spells and item set. Re-import if the lane opponent changes
+   (e.g. they lock after you). Never re-import the same thing twice.
+
+## u.gg data (unofficial — may change without notice)
+
+Base: `https://stats2.u.gg/lol/1.5`. No auth; send a normal browser `User-Agent`.
+Missing files return **403** (treat as "no data").
+
+- **Versions**: `https://static.bigbrain.gg/assets/lol/riot_patch_update/prod/ugg/ugg-api-versions.json`
+  → `{ "16_19": { "overview": "1.5.0", "matchups": "1.5.0", "primary_roles": "1.5.0", ... } }`.
+  The latest patch is the highest `major_minor` key.
+- **Build (general)**: `{base}/overview/{patch}/{queue}/{champId}/{ver}.json`
+- **Build (vs a specific opponent)**: `{base}/overview/{patch}/{queue}/matchups/{champId}_{oppId}/{ver}.json`
+  (only for `ranked_solo_5x5` / `ranked_flex_sr`).
+- **Matchups** (win rate vs every opponent): `{base}/matchups/{patch}/{queue}/{champId}/{ver}.json`
+- **Primary roles**: `{base}/primary_roles/{patch}/{ver}.json` → `{ "champId": [roleId, ...] }` most-played first.
+
+Queues: `ranked_solo_5x5`, `ranked_flex_sr`, `normal_draft_5x5`, `normal_blind_5x5`,
+`normal_aram`, `aram_mayhem` (not available in this format yet).
+LCU queue ids: 420 solo, 440 flex, 400 draft, 430 blind, 450 ARAM, 2400 ARAM Mayhem, 490 quickplay.
+
+All stat files are nested `data[regionId][rankId][roleId]`, keys are strings.
+
+- Region ids: 1 na1, 2 euw1, 3 kr, 4 eun1, 5 br1, 6 la1, 7 la2, 8 oc1, 9 ru, 10 tr1, 11 jp1, **12 world**, 13 ph2, 14 sg2, 15 th2, 16 tw2, 17 vn2, 18 me1
+- Rank ids: 1 challenger, 2 master, 3 diamond, 4 platinum, 5 gold, 6 silver, 7 bronze, **8 overall (all ranks)**, 10 platinum_plus, 11 diamond_plus, 12 iron, 13 grandmaster, 14 master_plus, 15 diamond_2_plus, 16 emerald, **17 emerald_plus**
+- Role ids: **1 jungle, 2 support, 3 adc, 4 top, 5 mid**, 6 ARAM (ARAM files only have rank `8` and role `6`)
+
+### Overview entry — `data[r][k][role] = [stats, "timestamp"]`
+`stats` indices:
+
+| # | Meaning | Shape |
+|---|---|---|
+| 0 | Runes | `[games, wins, primaryStyleId, subStyleId, [6 perk ids]]` |
+| 1 | Summoner spells | `[games, wins, [spell1, spell2]]` |
+| 2 | Starting items | `[games, wins, [itemIds]]` |
+| 3 | Core items (3) | `[games, wins, [itemIds]]` |
+| 4 | Skill order | `[games, wins, ["Q","E",...], "QEW" (max order)]` |
+| 5 | Item options | `[[4th: [id, wins, games]...], [5th...], [6th...], [other...], [], []]` |
+| 6 | Overall | `[wins, games]` |
+| 7 | (flag) | bool |
+| 8 | Stat shards | `[games, wins, ["5008","5008","5001"]]` (strings!) |
+
+### Matchups entry — `data[r][k][role] = [[row...], "timestamp"]`
+Each row: `[opponentId, wins, games, ...lane stats]` — `wins` are **this
+champion's** wins vs that opponent. So a counter's win rate vs the enemy is
+`1 - wins/games` when reading the *enemy's* matchups file.
+
+Sample (Emerald+, World, top): Yorick vs Gwen = 327 wins / 602 games (54.3%).
+
+## Riot static data (Data Dragon, official)
+
+- Versions: `https://ddragon.leagueoflegends.com/api/versions.json` (first = latest)
+- Champions: `/cdn/{v}/data/en_US/champion.json` (`key` is the numeric id as a string, `id` is e.g. `"MonkeyKing"`)
+- Items: `/cdn/{v}/data/en_US/item.json` · Runes: `/cdn/{v}/data/en_US/runesReforged.json` · Spells: `/cdn/{v}/data/en_US/summoner.json`
+- Images: `/cdn/{v}/img/champion/{id}.png`, `/cdn/{v}/img/item/{itemId}.png`, `/cdn/{v}/img/spell/{spellId}.png`, runes `/cdn/img/{icon}`
+
+## League client (LCU) calls used
+
+| Purpose | Call |
+|---|---|
+| Champ select state | `GET /lol-champ-select/v1/session` |
+| Queue id | `GET /lol-gameflow/v1/session` → `gameData.queue.id` |
+| Summoner id | `GET /lol-summoner/v1/current-summoner` |
+| Rune pages | `GET /lol-perks/v1/pages`, `DELETE /lol-perks/v1/pages/{id}`, `POST /lol-perks/v1/pages` `{name, primaryStyleId, subStyleId, selectedPerkIds[9], current:true}` |
+| Spells | `PATCH /lol-champ-select/v1/session/my-selection` `{spell1Id, spell2Id}` |
+| Item set | `GET`/`PUT /lol-item-sets/v1/item-sets/{summonerId}/sets` |
+
+Auth: HTTP Basic `riot:<password>`; the client uses a self-signed Riot
+certificate (trust Riot's root cert, `riotgames.pem`, only for 127.0.0.1).
+Rune pages and item sets the app creates are named with the prefix
+**`CSH: `** so it only ever replaces its own.
+
+## Code layout
+
+```
+src/                      Svelte UI
+  lib/types.ts            ← shared contract (mirrors src-tauri/src/model.rs)
+  lib/api.ts              invoke()/listen() wrappers (+ mock data outside Tauri)
+src-tauri/src/
+  model.rs                ← shared contract (Rust types sent to the UI)
+  lib.rs                  Tauri setup + commands
+  ugg.rs  ddragon.rs      data sources (+ disk cache)
+  lcu.rs                  League client connection + import
+  watcher.rs              background champ-select loop + auto-import
+  settings.rs             settings load/save (JSON in app config dir)
+src-tauri/tests/fixtures/ trimmed real u.gg responses for tests
+```

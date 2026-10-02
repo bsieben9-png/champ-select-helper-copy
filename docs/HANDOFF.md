@@ -1,6 +1,6 @@
 # Hand-off: where the work stands
 
-Last updated: 2026-10-01 7:35 PM MT (end of the cloud session).
+Last updated: 2026-10-01 7:45 PM MT (cloud session).
 
 ## Done (merged on `main`)
 - Design (`DESIGN.md`), shared contract (`model.rs` / `types.ts`), Tauri + Svelte skeleton
@@ -10,10 +10,11 @@ Last updated: 2026-10-01 7:35 PM MT (end of the cloud session).
   import (only `CSH:` pages; asks before overwriting a user page), auto-import ONCE at lock-in,
   spells never touched (`lcu.rs`, `watcher.rs`)
 - CI: Linux tests + Windows installer build on every push; release workflow; cloud SessionStart hook
-- 62 Rust tests pass; `npm run check` clean
+- **UI merged** (Live / Lookup / Pool / Settings, mock mode: `npm run dev` + `?mock=champselect|counters|blind|locked|fullpages|late|mayhem|ingame|lobby|disconnected`, `?view=lookup|pool|settings`). Screenshots in `docs/screenshots/`.
+- 62 Rust tests pass; `npm run check` + `npm run build` clean
 
 ## In progress (NOT on main yet): snapshots pushed as branches
-- **`wip/ui`**: the Svelte UI (Live / Lookup / Champion Pool / Settings, League-style theme,
+- ~~`wip/ui`~~: MERGED into main (ignore this branch). Original notes: the Svelte UI (Live / Lookup / Champion Pool / Settings, League-style theme,
   mock mode via `npm run dev`). It was still being built: finish it, check that
   `npm run build` and `npm run check` pass, then merge it into `main`. It must include: rune page
   overwrite confirmation modal (`ImportResult.needs_confirmation`, `import_build(build, overwritePageId)`),
@@ -27,7 +28,7 @@ Last updated: 2026-10-01 7:35 PM MT (end of the cloud session).
   Augment icons will need the CSP `img-src` in `tauri.conf.json` extended to their host.
 
 ## Next steps after that
-1. Merge `wip/ui` (and `wip/mayhem`) → `main`, resolve contract conflicts, run all checks, push.
+1. Finish/merge `wip/mayhem` → `main` (Rust `Build` still lacks `augments`; `types.ts` already has `AugmentOption`/`Build.augments`), resolve contract conflicts, run all checks, push.
 2. Test on the Windows PC with League running (see the list in the LCU agent notes below).
 3. Lolalytics as a second source behind a source dropdown (CLAUDE.md "Ideas for later").
 

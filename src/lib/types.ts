@@ -11,21 +11,22 @@ export type Queue =
   | "aram"
   | "aram_mayhem";
 
-export type FlashSlot = "auto" | "d" | "f";
+/** Stats provider. Only u.gg for now; more may be added later. */
+export type Source = "ugg";
 
 export interface Settings {
+  /** Import runes / item set once, when you lock in. */
   auto_import: boolean;
   import_runes: boolean;
-  import_spells: boolean;
   import_item_set: boolean;
   /** u.gg rank key, e.g. "emerald_plus" */
   rank: string;
   /** u.gg region key, e.g. "world" */
   region: string;
   min_games: number;
-  flash_slot: FlashSlot;
   champion_pool: number[];
   counters_pool_only: boolean;
+  source: Source;
 }
 
 export interface RunePage {
@@ -56,6 +57,7 @@ export interface Spells {
 }
 
 export interface Build {
+  source: Source;
   champion_id: number;
   role: Role | null;
   opponent_id: number | null;
@@ -76,6 +78,21 @@ export interface Build {
   skill_order: string[];
   skill_priority: string;
   available_roles: Role[];
+  /** ARAM Mayhem augments, best first. Empty for other queues
+   *  (the UI also treats a missing field as empty). */
+  augments: AugmentOption[];
+}
+
+export interface AugmentOption {
+  id: number;
+  name: string;
+  icon: string;
+  /** e.g. "silver" | "gold" | "prismatic" */
+  rarity: string;
+  description: string;
+  games: number;
+  win_rate: number;
+  pick_rate: number;
 }
 
 export interface MatchupStat {
@@ -89,6 +106,16 @@ export interface Counter {
   champion_id: number;
   games: number;
   win_rate: number;
+  in_pool: boolean;
+}
+
+/** One row of a role tier list (sorted best first). */
+export interface TierEntry {
+  champion_id: number;
+  games: number;
+  win_rate: number;
+  pick_rate: number;
+  ban_rate: number;
   in_pool: boolean;
 }
 
@@ -169,11 +196,19 @@ export interface LcuStatus {
   phase: string;
 }
 
+export interface RunePageRef {
+  id: number;
+  name: string;
+}
+
+/** Summoner spells are recommendation-only: the app never changes them. */
 export interface ImportResult {
   runes: boolean;
-  spells: boolean;
   item_set: boolean;
   messages: string[];
+  /** Set when all rune pages are full: ask before overwriting this page,
+   *  then call import_build again with `overwritePageId: page.id`. */
+  needs_confirmation: RunePageRef | null;
 }
 
 export interface AutoImportEvent {

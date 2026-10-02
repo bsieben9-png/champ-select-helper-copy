@@ -27,6 +27,12 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
   `AugmentOption { id, name, icon, rarity, description, games, win_rate, pick_rate }`.
   Augment icons will need the CSP `img-src` in `tauri.conf.json` extended to their host.
 
+- **Code review + end-to-end tests** were started at 7:40 PM MT (cloud). If their results aren't on
+  `main`, check the branches `wip/review` and `wip/tests`; otherwise redo them: (a) adversarial review of
+  rune-page/item-set safety, the once-at-lock-in rule, and the UI<->backend command/arg/event names;
+  (b) a fake League client (LCU mock) test suite, a live u.gg sweep over all champions, and a real-app
+  smoke test under xvfb; write `docs/TESTING.md` with a manual Windows + League checklist.
+
 ## Next steps after that
 1. Finish/merge `wip/mayhem` → `main` (Rust `Build` still lacks `augments`; `types.ts` already has `AugmentOption`/`Build.augments`), resolve contract conflicts, run all checks, push.
 2. Test on the Windows PC with League running (see the list in the LCU agent notes below).

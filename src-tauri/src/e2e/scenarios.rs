@@ -185,12 +185,9 @@ impl Harness {
 
     /// Only the poll itself: it must never wait for u.gg.
     async fn poll(&mut self) -> Duration {
-        tokio::time::timeout(
-            Duration::from_secs(5),
-            self.watcher.tick(self.app.handle()),
-        )
-        .await
-        .expect("the poll waited for something slow (u.gg?)")
+        tokio::time::timeout(Duration::from_secs(5), self.watcher.tick(self.app.handle()))
+            .await
+            .expect("the poll waited for something slow (u.gg?)")
     }
 
     /// Wait for the background work (roles, the import) to finish.
@@ -1039,7 +1036,11 @@ async fn league_restart_mid_champ_select_does_not_reimport() {
     h.client_shows("ChampSelect", Some(&draft));
     h.ticks(3).await;
     assert!(h.champ_select().await.in_champ_select);
-    assert_eq!(h.auto_imports().len(), 1, "re-imported after a client restart");
+    assert_eq!(
+        h.auto_imports().len(),
+        1,
+        "re-imported after a client restart"
+    );
     assert_eq!(perks(&h, our_page), Some(edited));
 
     // A dodge: lobby, queue, a new champ select → imported once.
@@ -1341,7 +1342,11 @@ async fn app_restart_mid_champ_select_does_not_reimport() {
     h.restart_app();
     h.ticks(4).await;
     assert!(h.champ_select().await.my_champion_locked);
-    assert_eq!(h.auto_imports().len(), 1, "re-imported after an app restart");
+    assert_eq!(
+        h.auto_imports().len(),
+        1,
+        "re-imported after an app restart"
+    );
     assert_eq!(perks(&h, our_page), Some(edited));
 
     // Restarted again, now in a different champ select: imports once.

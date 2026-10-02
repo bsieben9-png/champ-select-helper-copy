@@ -200,8 +200,7 @@ impl Watcher {
                 self.polls_elsewhere = 0;
                 self.check_identity(identity.as_deref());
                 set_champ_select(app, &state, cs.clone()).await;
-                self.auto_import(app, &state, &client, &cs, identity)
-                    .await;
+                self.auto_import(app, &state, &client, &cs, identity).await;
             }
             // Session 404 while the phase still says ChampSelect: transient.
             Ok(_) => self.not_in_champ_select(app, &state, false).await,
@@ -302,7 +301,10 @@ impl Watcher {
     /// is for (a dodge and requeue, or the app restarted into a new one),
     /// start over.
     fn check_identity(&mut self, identity: Option<&str>) {
-        let known = self.last_import.as_ref().and_then(|l| l.identity.as_deref());
+        let known = self
+            .last_import
+            .as_ref()
+            .and_then(|l| l.identity.as_deref());
         if let (Some(known), Some(current)) = (known, identity) {
             if known != current {
                 self.forget_import();

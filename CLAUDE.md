@@ -54,7 +54,7 @@ on another machine (PC ⇄ cloud).
 - [ ] u.gg + Data Dragon data layer (`ugg.rs`, `ddragon.rs`)
 - [ ] League client connection + import + auto-import (`lcu.rs`, `watcher.rs`)
 - [ ] UI (`src/`)
-- [ ] Windows CI build + README
+- [x] Windows CI build + README + cloud session hook (`.github/workflows/`, `.claude/hooks/`)
 - [ ] ARAM Mayhem data (u.gg has it, file location not found yet — page is server-rendered).
       Leads: u.gg queue key `aram_mayhem` (LCU queue 2400) / `aram_mayhem_classic` (2450);
       `overview/{patch}/aram_mayhem/...` returns 403. u.gg JS (`static.bigbrain.gg/lol/static/js/*.js`)

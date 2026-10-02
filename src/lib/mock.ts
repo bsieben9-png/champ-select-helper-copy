@@ -196,7 +196,7 @@ const staticData = () => (staticP ??= loadStatic().catch((e) => ((staticP = null
 
 // ---------------------------------------------------------------- settings
 const DEFAULT_SETTINGS: Settings = {
-  auto_import: true,
+  auto_import: false,
   import_runes: true,
   import_item_set: true,
   rank: "emerald_plus",

@@ -819,7 +819,7 @@ mod tests {
                 &app,
                 "watcher-reconnect",
                 client.clone(),
-                Settings::default(),
+                Settings::auto_on(),
             );
             let (handle, state) = (app.handle(), app.state::<AppState>());
             let posts = || mock.lock().unwrap().requests_to(RUNE_POST.0, RUNE_POST.1);
@@ -868,7 +868,7 @@ mod tests {
                 mock_client(|m| m.session = Some(fixture("champ_select_ranked.json"))).await;
             let off = Settings {
                 auto_import: false,
-                ..Settings::default()
+                ..Settings::auto_on()
             };
             manage_state(&app, "watcher-toggle", client, off);
             let (handle, state) = (app.handle(), app.state::<AppState>());

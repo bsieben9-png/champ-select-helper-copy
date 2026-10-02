@@ -131,10 +131,23 @@ pub struct Settings {
     pub source: Source,
 }
 
+#[cfg(test)]
+impl Settings {
+    /// Tests: defaults with auto-import switched on.
+    pub fn auto_on() -> Self {
+        Settings {
+            auto_import: true,
+            ..Settings::default()
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            auto_import: true,
+            // Owner decision: off by default (most cautious under Riot's rules);
+            // the user presses Import, or turns auto-import on in Settings.
+            auto_import: false,
             import_runes: true,
             import_item_set: true,
             rank: "emerald_plus".into(),
@@ -408,6 +421,15 @@ pub struct AutoImportEvent {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn auto_import_is_off_by_default() {
+        assert!(!Settings::default().auto_import);
+        // An old settings file without the field also means off.
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!s.auto_import);
+    }
+
     use super::*;
 
     #[test]

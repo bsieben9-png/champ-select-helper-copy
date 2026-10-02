@@ -320,7 +320,7 @@ fn assert_never_touched_spells_or_defaults(fake: &FakeState) {
 
 #[tokio::test]
 async fn ranked_auto_import_runs_once_at_lock_in_and_never_again() {
-    let mut h = Harness::new("e2e-ranked", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-ranked", Settings::auto_on(), |_| {}).await;
 
     h.client_shows("Lobby", None);
     h.tick().await;
@@ -443,7 +443,7 @@ async fn ranked_auto_import_runs_once_at_lock_in_and_never_again() {
 
 #[tokio::test]
 async fn trade_after_lock_in_does_not_reimport() {
-    let mut h = Harness::new("e2e-trade", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-trade", Settings::auto_on(), |_| {}).await;
     let draft = Draft::ranked().hover(YORICK).lock();
     h.client_shows("ChampSelect", Some(&draft));
     h.ticks(2).await;
@@ -457,7 +457,7 @@ async fn trade_after_lock_in_does_not_reimport() {
 
 #[tokio::test]
 async fn blind_pick_imports_the_most_played_role_build() {
-    let mut h = Harness::new("e2e-blind", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-blind", Settings::auto_on(), |_| {}).await;
     let draft = Draft::blind().hover(YORICK);
     h.client_shows("ChampSelect", Some(&draft));
     h.ticks(2).await;
@@ -478,7 +478,7 @@ async fn blind_pick_imports_the_most_played_role_build() {
 async fn auto_import_off_writes_nothing() {
     let settings = Settings {
         auto_import: false,
-        ..Settings::default()
+        ..Settings::auto_on()
     };
     let mut h = Harness::new("e2e-off", settings, |_| {}).await;
     let draft = Draft::ranked().intent(YORICK);
@@ -501,7 +501,7 @@ async fn auto_import_with_runes_and_item_set_off_does_nothing() {
     let settings = Settings {
         import_runes: false,
         import_item_set: false,
-        ..Settings::default()
+        ..Settings::auto_on()
     };
     let mut h = Harness::new("e2e-toggles", settings, |_| {}).await;
     h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
@@ -517,7 +517,7 @@ async fn auto_import_with_runes_and_item_set_off_does_nothing() {
 
 #[tokio::test]
 async fn full_rune_pages_ask_first_then_replace_only_the_confirmed_page() {
-    let mut h = Harness::new("e2e-full", Settings::default(), |st| {
+    let mut h = Harness::new("e2e-full", Settings::auto_on(), |st| {
         st.fill_page_slots_without_our_page();
     })
     .await;
@@ -583,7 +583,7 @@ async fn full_rune_pages_ask_first_then_replace_only_the_confirmed_page() {
 
 #[tokio::test]
 async fn full_rune_pages_with_our_page_replace_it_and_keep_user_pages() {
-    let mut h = Harness::new("e2e-full-ours", Settings::default(), |st| {
+    let mut h = Harness::new("e2e-full-ours", Settings::auto_on(), |st| {
         // CSH page + 2 user pages, 3 slots: full.
         st.owned_pages = 3;
     })
@@ -620,7 +620,7 @@ async fn full_rune_pages_with_our_page_replace_it_and_keep_user_pages() {
 
 #[tokio::test]
 async fn full_rune_pages_never_offer_or_replace_a_default_page() {
-    let mut h = Harness::new("e2e-full-default", Settings::default(), |st| {
+    let mut h = Harness::new("e2e-full-default", Settings::auto_on(), |st| {
         st.fill_page_slots_without_our_page();
         for p in &mut st.pages {
             p["current"] = json!(p["id"] == json!(PAGE_DEFAULT));
@@ -702,7 +702,7 @@ fn is_ours_for_yorick(set: &Value) -> bool {
 
 #[tokio::test]
 async fn item_sets_keep_user_sets_and_replace_ours() {
-    let mut h = Harness::new("e2e-itemsets", Settings::default(), |st| {
+    let mut h = Harness::new("e2e-itemsets", Settings::auto_on(), |st| {
         st.item_sets.insert(SUMMONER_ID, exotic_item_sets());
     })
     .await;
@@ -764,7 +764,7 @@ async fn item_sets_keep_user_sets_and_replace_ours() {
 
 #[tokio::test]
 async fn item_sets_for_a_new_account_without_sets() {
-    let mut h = Harness::new("e2e-itemsets-empty", Settings::default(), |st| {
+    let mut h = Harness::new("e2e-itemsets-empty", Settings::auto_on(), |st| {
         st.item_sets.insert(
             SUMMONER_ID,
             json!({"accountId": 0, "itemSets": [], "timestamp": 0}),
@@ -784,7 +784,7 @@ async fn item_sets_for_a_new_account_without_sets() {
 
 #[tokio::test]
 async fn dodge_and_new_champ_select_imports_again_once() {
-    let mut h = Harness::new("e2e-dodge", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-dodge", Settings::auto_on(), |_| {}).await;
     h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
     h.ticks(3).await;
     assert_eq!(h.auto_imports().len(), 1);
@@ -828,7 +828,7 @@ async fn dodge_and_new_champ_select_imports_again_once() {
 #[tokio::test]
 async fn aram_imports_once_per_champion() {
     for queue_id in [450, 2400, 2450] {
-        let mut h = Harness::new("e2e-aram", Settings::default(), |_| {}).await;
+        let mut h = Harness::new("e2e-aram", Settings::auto_on(), |_| {}).await;
         let draft = Draft::aram(queue_id, YORICK, vec![ASHE, 99]);
         h.client_shows("ChampSelect", Some(&draft));
         h.ticks(3).await;
@@ -861,7 +861,7 @@ async fn aram_imports_once_per_champion() {
 
 #[tokio::test]
 async fn client_disappearing_mid_select_disconnects_cleanly() {
-    let mut h = Harness::new("e2e-gone", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-gone", Settings::auto_on(), |_| {}).await;
     h.client_shows(
         "ChampSelect",
         Some(&Draft::ranked().intent(YORICK).hover(YORICK)),
@@ -894,7 +894,7 @@ async fn client_disappearing_mid_select_disconnects_cleanly() {
 
 #[tokio::test]
 async fn client_crashing_during_the_import_does_not_panic() {
-    let mut h = Harness::new("e2e-crash", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-crash", Settings::auto_on(), |_| {}).await;
     let draft = Draft::ranked().hover(YORICK);
     h.client_shows("ChampSelect", Some(&draft));
     h.ticks(2).await;
@@ -918,7 +918,7 @@ async fn client_crashing_during_the_import_does_not_panic() {
 
 #[tokio::test]
 async fn client_restarted_with_new_credentials_disconnects() {
-    let mut h = Harness::new("e2e-401", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-401", Settings::auto_on(), |_| {}).await;
     h.client_shows("Lobby", None);
     h.tick().await;
     assert!(h.lcu_status().await.connected);
@@ -962,7 +962,7 @@ fn perks(h: &Harness, id: u64) -> Option<Value> {
 /// champ select: no second import over the user's edits.
 #[tokio::test]
 async fn transport_error_after_lock_in_does_not_reimport() {
-    let mut h = Harness::new("e2e-blip", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-blip", Settings::auto_on(), |_| {}).await;
     let (our_page, edited) = locked_in_and_edited(&mut h).await;
     h.fake.state().crash_after = Some(0);
     h.tick().await;
@@ -993,7 +993,7 @@ async fn error_answer_after_lock_in_does_not_reimport() {
         ("/lol-gameflow/v1/gameflow-phase", 503),
         ("/lol-champ-select/v1/session", 404),
     ] {
-        let mut h = Harness::new("e2e-blip-answer", Settings::default(), |_| {}).await;
+        let mut h = Harness::new("e2e-blip-answer", Settings::auto_on(), |_| {}).await;
         let (our_page, edited) = locked_in_and_edited(&mut h).await;
         let events_before = h.events("champ-select").len();
         h.fake.state().fail_once.insert(path.into(), status);
@@ -1026,7 +1026,7 @@ async fn error_answer_after_lock_in_does_not_reimport() {
 /// user's edits. The next real champ select imports again.
 #[tokio::test]
 async fn league_restart_mid_champ_select_does_not_reimport() {
-    let mut h = Harness::new("e2e-league-restart", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-league-restart", Settings::auto_on(), |_| {}).await;
     let draft = Draft::ranked().hover(YORICK).lock();
     let (our_page, edited) = locked_in_and_edited_in(&mut h, &draft).await;
     h.client_shows("None", None);
@@ -1062,7 +1062,7 @@ const BUILD_FILES: &str = "/overview/";
 
 /// Connected in the lobby, champion roles loaded.
 async fn in_lobby(name: &str) -> Harness {
-    let mut h = Harness::new(name, Settings::default(), |_| {}).await;
+    let mut h = Harness::new(name, Settings::auto_on(), |_| {}).await;
     h.client_shows("Lobby", None);
     h.tick().await;
     h
@@ -1256,7 +1256,7 @@ async fn failed_build_fetch_is_never_retried() {
 /// the lane opponent; once they arrive the lane opponent is shown.
 #[tokio::test]
 async fn hanging_roles_never_hold_up_champ_select_updates() {
-    let mut h = Harness::new("e2e-roles-hang", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-roles-hang", Settings::auto_on(), |_| {}).await;
     h.ugg().set_stalled("/primary_roles/", true);
     let draft = Draft::ranked().enemy_locks(0, GWEN).hover(YORICK);
     h.client_shows("ChampSelect", Some(&draft));
@@ -1330,7 +1330,7 @@ async fn champion_roles_reload_after_a_patch_change() {
 /// user's edits. A different champ select still imports once.
 #[tokio::test]
 async fn app_restart_mid_champ_select_does_not_reimport() {
-    let mut h = Harness::new("e2e-app-restart", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-app-restart", Settings::auto_on(), |_| {}).await;
     let draft = Draft::ranked().hover(YORICK).lock();
     let (our_page, edited) = locked_in_and_edited_in(&mut h, &draft).await;
     assert!(h.marker().exists());
@@ -1367,7 +1367,7 @@ async fn app_restart_mid_champ_select_does_not_reimport() {
 async fn app_restart_after_lock_in_with_auto_import_off_does_not_import() {
     let off = Settings {
         auto_import: false,
-        ..Settings::default()
+        ..Settings::auto_on()
     };
     let mut h = Harness::new("e2e-app-restart-off", off, |_| {}).await;
     h.client_shows("ChampSelect", Some(&Draft::ranked().hover(YORICK).lock()));
@@ -1389,7 +1389,7 @@ async fn app_restart_after_lock_in_with_auto_import_off_does_not_import() {
 /// import/overwrite path can't be exercised in the real app without League.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ui_invoke_calls_reach_the_commands() {
-    let h = Harness::new("e2e-ipc", Settings::default(), |st| {
+    let h = Harness::new("e2e-ipc", Settings::auto_on(), |st| {
         st.fill_page_slots_without_our_page();
     })
     .await;

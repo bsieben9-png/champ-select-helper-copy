@@ -1431,7 +1431,7 @@ async fn draft_queues_import_once_at_lock_in_start_to_finish() {
         (440, Queue::RankedFlex),
         (400, Queue::NormalDraft),
     ] {
-        let mut h = Harness::new("e2e-draft-queues", Settings::default(), |_| {}).await;
+        let mut h = Harness::new("e2e-draft-queues", Settings::auto_on(), |_| {}).await;
         h.client_shows_lobby("Lobby", queue_id, Some(plain_lobby(queue_id)));
         h.tick().await;
         let lobby = h.lobby_state().await;
@@ -1571,11 +1571,12 @@ async fn counters_and_tier_list_for_every_summoners_rift_queue() {
 /// Swiftplay (480) and the old Quickplay (490): champions are picked per
 /// position in the lobby. The app shows my slots (read only), never writes to
 /// the lobby and never auto-imports there or in the short skip-champ-select
-/// step; Import by hand makes a `CSH:` rune page + item set.
+/// step (even with auto-import on). Import by hand makes a `CSH:` rune page
+/// + item set.
 #[tokio::test]
 async fn swiftplay_and_quickplay_show_lobby_slots_and_never_write_the_lobby() {
     for queue_id in [480, 490] {
-        let mut h = Harness::new("e2e-swiftplay", Settings::default(), |_| {}).await;
+        let mut h = Harness::new("e2e-swiftplay", Settings::auto_on(), |_| {}).await;
         let lobby = swiftplay_lobby(queue_id, &[(YORICK as i64, "TOP"), (-1, "FILL")]);
         h.client_shows_lobby("Lobby", queue_id, Some(lobby));
         h.tick().await;
@@ -1676,7 +1677,7 @@ async fn swiftplay_and_quickplay_show_lobby_slots_and_never_write_the_lobby() {
 #[tokio::test]
 async fn mayhem_imports_once_per_champion_and_never_loops() {
     for queue_id in [2400, 2450] {
-        let mut h = Harness::new("e2e-mayhem", Settings::default(), |_| {}).await;
+        let mut h = Harness::new("e2e-mayhem", Settings::auto_on(), |_| {}).await;
         h.client_shows_lobby("Lobby", queue_id, Some(plain_lobby(queue_id)));
         h.tick().await;
         assert_eq!(h.lobby_state().await.queue, Some(Queue::AramMayhem));
@@ -1754,7 +1755,7 @@ async fn mayhem_imports_once_per_champion_and_never_loops() {
 #[tokio::test]
 #[ignore = "BUG(watcher): ARAM import memory is only the last champion; swapping back re-imports (keep a set of champion ids imported in this champ select)"]
 async fn mayhem_swapping_back_to_an_imported_champion_does_not_reimport() {
-    let mut h = Harness::new("e2e-mayhem-back", Settings::default(), |_| {}).await;
+    let mut h = Harness::new("e2e-mayhem-back", Settings::auto_on(), |_| {}).await;
     let draft = Draft::aram(2400, YORICK, vec![ASHE, 99]);
     h.client_shows("ChampSelect", Some(&draft));
     h.ticks(2).await;

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window permissions",
+  "description": "Main window: only listen to the backend's events (lcu-status, champ-select, auto-imported). The app's own commands are allowed by default; no window, path, menu, tray, app or webview APIs.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

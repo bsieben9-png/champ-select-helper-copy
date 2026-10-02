@@ -33,6 +33,13 @@ Last updated: 2026-10-01 7:45 PM MT (cloud session).
   (b) a fake League client (LCU mock) test suite, a live u.gg sweep over all champions, and a real-app
   smoke test under xvfb; write `docs/TESTING.md` with a manual Windows + League checklist.
 
+- **Code review: MERGED.** 7 bugs fixed (re-import after a client hiccup, toggling auto-import on
+  after lock-in, item-set wipe on an odd GET, perk order for the client, static data needing u.gg,
+  wrong queue in the overwrite dialog, Import enabled while loading). Leftovers worth doing:
+  the watcher's u.gg calls can stall champ-select updates for 8-15 s when u.gg hangs (move build
+  fetching off the poll loop); a 404 session while phase=ChampSelect resets import memory; champion
+  roles never reload after a patch change; "already imported" isn't persisted across app restarts.
+
 ## Next steps after that
 1. Merge the review/test results (branches `wip/review`, `wip/tests` if not on main yet). Optional: fill augment descriptions/pick rates from OP.GG's Mayhem page (sample in `src-tauri/tests/fixtures/other_sources/opgg_mayhem_augments_83.json`).
 2. Test on the Windows PC with League running (see the list in the LCU agent notes below).

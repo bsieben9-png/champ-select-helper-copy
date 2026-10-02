@@ -41,6 +41,8 @@ const RUNE_PAGE_NAME_MAX: usize = 25;
 /// Summoner's Rift / Howling Abyss map ids for item sets.
 const MAP_SUMMONERS_RIFT: u32 = 11;
 const MAP_HOWLING_ABYSS: u32 = 12;
+/// Largest League client reply we read (a long item-set list is ~1 MB).
+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct LcuClient {
@@ -52,11 +54,21 @@ pub struct LcuClient {
     summoner_name: Arc<Mutex<Option<String>>>,
 }
 
-/// Connection info found in the process command line or the lockfile.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Connection info from League's lockfile.
+#[derive(Clone, PartialEq, Eq)]
 struct Credentials {
     port: u16,
     token: String,
+}
+
+/// Never print the password: it unlocks the whole client API.
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("port", &self.port)
+            .field("token", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -71,8 +83,8 @@ enum RunesOutcome {
 impl LcuClient {
     /// Find a running League client (lockfile). None if not running.
     ///
-    /// Blocking but cheap: lists process names only (no CPU/memory stats),
-    /// then reads the command line of the League process itself.
+    /// Blocking but cheap: reads two small files (see `find_credentials`)
+    /// and never looks at any other process.
     pub fn discover() -> Option<LcuClient> {
         let creds = find_credentials()?;
         LcuClient::from_base_url(format!("https://127.0.0.1:{}", creds.port), &creds.token).ok()
@@ -94,6 +106,9 @@ impl LcuClient {
             // validated by rustls. Loopback-only client.
             .danger_accept_invalid_certs(true)
             .no_proxy()
+            // Never follow redirects: this client (no certificate check,
+            // password attached) must only ever talk to 127.0.0.1.
+            .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(2))
             .timeout(Duration::from_secs(3))
             .build()?;
@@ -131,8 +146,7 @@ impl LcuClient {
             .await
             .with_context(|| format!("{method} {path}: League client not reachable"))?;
         let status = resp.status();
-        let bytes = resp
-            .bytes()
+        let bytes = crate::http_cache::read_body(resp, MAX_RESPONSE_BYTES)
             .await
             .with_context(|| format!("{method} {path}: reading response"))?;
         let value = if bytes.iter().all(|b| b.is_ascii_whitespace()) {
@@ -1397,6 +1411,38 @@ pub(crate) mod tests {
         assert_eq!(parse_lockfile(""), None);
         assert_eq!(parse_lockfile("LeagueClient:1:notaport:pw:https"), None);
         assert_eq!(parse_lockfile("LeagueClient:1:2:"), None);
+        // The password never shows up in debug output / logs.
+        let creds = parse_lockfile("LeagueClient:1:54321:s3cret:https").unwrap();
+        assert!(!format!("{creds:?}").contains("s3cret"));
+    }
+
+    #[tokio::test]
+    async fn redirects_are_never_followed() {
+        // A "client" that redirects elsewhere (e.g. a foreign program on a
+        // stale lockfile's port): the request must not leave 127.0.0.1:port.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = Arc::new(StdMutex::new(0));
+        let counted = hits.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                *counted.lock().unwrap() += 1;
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                let reply = format!(
+                    "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}/elsewhere\r\n\
+                     Content-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _ = sock.write_all(reply.as_bytes()).await;
+            }
+        });
+        let client = LcuClient::for_test(&format!("http://127.0.0.1:{port}"), "x");
+        let (status, _) = client
+            .request(Method::GET, "/lol-gameflow/v1/gameflow-phase", None)
+            .await
+            .unwrap();
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(*hits.lock().unwrap(), 1, "redirect was followed");
     }
 
     #[test]

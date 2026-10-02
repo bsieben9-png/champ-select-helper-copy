@@ -25,6 +25,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const MISSING_TTL: Duration = Duration::from_secs(60 * 60);
 /// After falling back to a stale copy, retry the network after this long.
 const STALE_RETRY: Duration = Duration::from_secs(2 * 60);
+/// Largest (decompressed) download we accept. The biggest real files
+/// (u.gg matchups / tier lists) are a few MB; this only stops a broken or
+/// hostile server from filling memory.
+const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
+/// Redirects followed per request (all must stay on HTTPS).
+const MAX_REDIRECTS: usize = 5;
 
 /// A parser turns the raw response body into the value kept in memory.
 pub type Parser<T> = fn(&[u8]) -> anyhow::Result<T>;
@@ -79,9 +85,13 @@ pub struct HttpCache {
 
 impl HttpCache {
     pub fn new(dir: PathBuf, max_entries: usize) -> Self {
+        // Normal certificate checks (bundled + OS roots); plain HTTP refused,
+        // also after a redirect.
         let client = reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .gzip(true)
+            .https_only(true)
+            .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
             .timeout(TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
@@ -201,11 +211,10 @@ impl HttpCache {
         if !status.is_success() {
             bail!("GET {url}: HTTP {status}");
         }
-        let body = resp
-            .bytes()
+        let body = read_body(resp, MAX_BODY_BYTES)
             .await
             .with_context(|| format!("reading {url}"))?;
-        Ok(Fetched::Body(body.to_vec()))
+        Ok(Fetched::Body(body))
     }
 
     /// The memory slot for `url` (created on demand). Drops the least
@@ -277,7 +286,28 @@ pub fn cache_file_name(url: &str) -> String {
     while name.ends_with('.') {
         name.pop();
     }
+    // Never "" (the cache folder itself); ".." can't survive the line above.
+    if name.is_empty() {
+        name.push('_');
+    }
     name
+}
+
+/// A response body, refusing more than `max` bytes (a huge or endless
+/// reply must not use up memory). Checks the announced length first, then
+/// counts while reading (gzip bodies are counted decompressed).
+pub async fn read_body(mut resp: reqwest::Response, max: usize) -> anyhow::Result<Vec<u8>> {
+    if resp.content_length().is_some_and(|n| n > max as u64) {
+        bail!("response too large (over {} MB)", max / (1024 * 1024));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if body.len() + chunk.len() > max {
+            bail!("response too large (over {} MB)", max / (1024 * 1024));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 async fn file_age(path: &Path) -> Option<Duration> {
@@ -372,6 +402,88 @@ mod tests {
         let name =
             cache_file_name("https://ddragon.leagueoflegends.com/cdn/16.19.1/data/en_US/item.json");
         assert!(!name.contains(['<', '>', ':', '"', '/', '\\', '|', '?', '*']));
+    }
+
+    #[test]
+    fn file_names_never_leave_the_cache_folder() {
+        for url in [
+            "https://x/../../evil.exe",
+            "https://x/..\\..\\evil",
+            "..",
+            "https://..",
+            "",
+            "https://x/%2e%2e/a",
+            "C:\\Windows\\evil",
+        ] {
+            let name = cache_file_name(url);
+            assert!(!name.is_empty() && name != "." && name != "..", "{url} → {name}");
+            assert!(!name.contains(['/', '\\', ':']), "{url} → {name}");
+            let dir = PathBuf::from("cache");
+            assert_eq!(dir.join(&name).parent(), Some(dir.as_path()), "{url}");
+        }
+    }
+
+    /// One-shot local HTTP server answering `body` (with `Content-Length`
+    /// unless `chunked`) to the first request.
+    async fn serve_once(body: Vec<u8>, chunked: bool) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = sock.read(&mut buf).await;
+            let head = if chunked {
+                "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+                    .to_string()
+            } else {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+            };
+            let _ = sock.write_all(head.as_bytes()).await;
+            if chunked {
+                for part in body.chunks(1000) {
+                    let _ = sock
+                        .write_all(format!("{:x}\r\n", part.len()).as_bytes())
+                        .await;
+                    let _ = sock.write_all(part).await;
+                    let _ = sock.write_all(b"\r\n").await;
+                }
+                let _ = sock.write_all(b"0\r\n\r\n").await;
+            } else {
+                let _ = sock.write_all(&body).await;
+            }
+        });
+        format!("http://{addr}/")
+    }
+
+    #[tokio::test]
+    async fn oversized_responses_are_refused() {
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        // Announced length over the limit.
+        let url = serve_once(vec![b'x'; 5000], false).await;
+        let resp = client.get(&url).send().await.unwrap();
+        assert!(read_body(resp, 4000).await.is_err());
+        // No length announced: counted while reading.
+        let url = serve_once(vec![b'x'; 5000], true).await;
+        let resp = client.get(&url).send().await.unwrap();
+        assert!(read_body(resp, 4000).await.is_err());
+        // Within the limit.
+        let url = serve_once(vec![b'x'; 3000], true).await;
+        let resp = client.get(&url).send().await.unwrap();
+        assert_eq!(read_body(resp, 4000).await.unwrap().len(), 3000);
+    }
+
+    #[tokio::test]
+    async fn plain_http_is_refused() {
+        let dir = temp_dir("http-https-only");
+        let cache = HttpCache::new(dir.clone(), 4);
+        let url = serve_once(b"{}".to_vec(), false).await;
+        let err = cache.get(&url, Duration::from_secs(60), parse_len).await;
+        assert!(err.is_err(), "fetched over plain HTTP");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

@@ -87,9 +87,9 @@ has drawn publicly, and does strictly less than the big approved apps.
 - "Products cannot identify or analyze players who are deliberately hidden by the game."
   The app reads no player identities.
 - "Products cannot display win rates for Augments or Arena Mode items. This applies to all
-  websites, applications and overlays." The app shows **no augments at all**: ARAM / ARAM
-  Mayhem support is being removed (owner decision, 2026-10-02; code kept on branch
-  `saved/aram-mayhem`). Before that, verified on main: the augment panel
+  websites, applications and overlays." Once ARAM / ARAM
+  Mayhem support is removed (owner decision, in progress; code kept on branch
+  `saved/aram-mayhem`), the app shows no augments at all. Until then, verified: the augment panel
   (`src/lib/components/Augments.svelte`, fixed in b59c3a2) showed only u.gg's order (rank,
   icon, name), the backend never filled augment stats (`games`, `win_rate`, `pick_rate`
   always 0 in `src-tauri/src/ugg.rs`; u.gg publishes none) and no other component showed
@@ -332,7 +332,7 @@ must keep changing only the slot's `perks` field (never the champion, skin or sp
 - README: no longer claims the import sets summoner spells; no longer tells you to run the
   app as administrator; new "Will this get me banned?" section.
 - Done elsewhere (main, same day, owner decisions): augment win rates never shown
-  (b59c3a2), then ARAM / ARAM Mayhem removed entirely (saved on `saved/aram-mayhem`);
+  (b59c3a2); ARAM / ARAM Mayhem removal in progress (owner decision, saved on `saved/aram-mayhem`);
   auto-import is exactly one attempt at lock-in, never retried (6e411c7), and **off by
   default** (f2a195d).
 

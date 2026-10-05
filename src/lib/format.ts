@@ -27,14 +27,16 @@ export const QUEUE_LABEL: Record<Queue, string> = {
   normal_draft: "Normal Draft",
   normal_blind: "Normal Blind",
   swiftplay: "Swiftplay",
+  practice_tool: "Practice Tool",
 };
 
-/** Queues offered in Lookup. Normals and Swiftplay use ranked solo data. */
+/** Queues offered in Lookup. Normals, Swiftplay, and Practice Tool use ranked solo data. */
 export const LOOKUP_QUEUES: { value: Queue; label: string }[] = [
   { value: "ranked_solo", label: "Ranked Solo" },
   { value: "ranked_flex", label: "Flex" },
   { value: "normal_draft", label: "Normal Draft" },
   { value: "swiftplay", label: "Swiftplay" },
+  { value: "practice_tool", label: "Practice Tool" },
 ];
 
 /** Queue name for a client queue id: 490-493 is the old Quickplay. */

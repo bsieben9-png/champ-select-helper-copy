@@ -9,7 +9,9 @@ export type Queue =
   | "normal_draft"
   | "normal_blind"
   /** Swiftplay (480) / old Quickplay (490): champions picked in the lobby. */
-  | "swiftplay";
+  | "swiftplay"
+  /** Practice Tool: custom Summoner's Rift. Stats are ranked solo. */
+  | "practice_tool";
 
 /** Stats provider. Only u.gg for now; more may be added later. */
 export type Source = "ugg";

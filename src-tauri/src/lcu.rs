@@ -255,14 +255,18 @@ impl LcuClient {
         let Some(session) = self.champ_select_session().await? else {
             return Ok((ChampSelectState::default(), None));
         };
-        let from_gameflow = match self
+        let (from_gameflow, mut game_mode) = match self
             .request(Method::GET, "/lol-gameflow/v1/session", None)
             .await
         {
-            Ok((st, flow)) if st.is_success() => {
-                flow.pointer("/gameData/queue/id").and_then(Value::as_i64)
-            }
-            _ => None,
+            Ok((st, flow)) if st.is_success() => (
+                flow.pointer("/gameData/queue/id").and_then(Value::as_i64),
+                flow.pointer("/gameData/queue/gameMode")
+                    .or_else(|| flow.pointer("/map/gameMode"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            ),
+            _ => (None, None),
         };
         // Newer clients also put the queue id in the champ select session.
         let queue_id = from_gameflow.or_else(|| {
@@ -271,8 +275,18 @@ impl LcuClient {
                 .and_then(Value::as_i64)
                 .filter(|&q| q > 0)
         });
+        // Practice Tool's queue id is often 0, which is also a generic custom.
+        // The mode string is the signal. A lobby still open during champ select
+        // covers a gameflow payload that omitted gameMode. An explicit mode
+        // (including CLASSIC) is left alone, so a stale practice lobby cannot
+        // relabel a different game.
+        if game_mode.is_none()
+            && matches!(self.lobby().await, Ok(lobby) if lobby.queue == Some(Queue::PracticeTool))
+        {
+            game_mode = Some("PRACTICETOOL".to_string());
+        }
         Ok((
-            parse_champ_select(&session, queue_id, roles),
+            parse_champ_select_with_mode(&session, queue_id, game_mode.as_deref(), roles),
             session_identity(&session),
         ))
     }
@@ -606,6 +620,17 @@ pub fn parse_champ_select(
     queue_id: Option<i64>,
     roles: &HashMap<u32, Vec<Role>>,
 ) -> ChampSelectState {
+    parse_champ_select_with_mode(session, queue_id, None, roles)
+}
+
+/// [`parse_champ_select`] plus the gameflow/lobby `gameMode` string.
+/// Practice Tool is recognized from that string before the queue id.
+pub fn parse_champ_select_with_mode(
+    session: &Value,
+    queue_id: Option<i64>,
+    game_mode: Option<&str>,
+    roles: &HashMap<u32, Vec<Role>>,
+) -> ChampSelectState {
     let empty = Vec::new();
     let local_cell = session.get("localPlayerCellId").and_then(Value::as_i64);
     let my_team = session
@@ -635,7 +660,9 @@ pub fn parse_champ_select(
     };
     let cell_of = |v: &Value, key: &str| v.get(key).and_then(Value::as_i64);
 
-    let queue = queue_id.and_then(Queue::from_lcu_queue_id);
+    let queue = game_mode
+        .and_then(Queue::from_game_mode)
+        .or_else(|| queue_id.and_then(Queue::from_lcu_queue_id));
     let position = |p: &Value| {
         p.get("assignedPosition")
             .and_then(Value::as_str)
@@ -797,9 +824,16 @@ pub fn parse_lobby(lobby: &Value) -> LobbyState {
         .get("queueId")
         .and_then(Value::as_i64)
         .filter(|&q| q > 0);
-    let mut queue = queue_id.and_then(Queue::from_lcu_queue_id);
-    let lobby_pick =
-        flag(config, "showQuickPlaySlotSelection") || queue.is_some_and(Queue::is_lobby_pick);
+    let mode = config.get("gameMode").and_then(Value::as_str);
+    // Practice Tool before the Swiftplay fallback. A missing id (or 0) plus
+    // the quickplay flag must not relabel this lobby as Swiftplay.
+    let practice = mode.and_then(Queue::from_game_mode).or_else(|| {
+        (flag(lobby, "isPracticeTool") || flag(config, "isPracticeTool"))
+            .then_some(Queue::PracticeTool)
+    });
+    let mut queue = practice.or_else(|| queue_id.and_then(Queue::from_lcu_queue_id));
+    let lobby_pick = !matches!(queue, Some(Queue::PracticeTool))
+        && (flag(config, "showQuickPlaySlotSelection") || queue.is_some_and(Queue::is_lobby_pick));
     if lobby_pick && queue.is_none() {
         // A new lobby-pick queue id we don't know yet.
         queue = Some(Queue::Swiftplay);
@@ -1569,6 +1603,95 @@ pub(crate) mod tests {
             let state = parse_lobby(&junk);
             assert_eq!((state.queue, state.slots.len()), (None, 0));
         }
+    }
+
+    #[test]
+    fn practice_tool_lobby_is_not_swiftplay() {
+        let mut lobby = fixture("lobby_swiftplay.json");
+        lobby["gameConfig"]["gameMode"] = json!("PRACTICETOOL");
+        lobby["gameConfig"]["queueId"] = json!(0);
+        lobby["gameConfig"]["showQuickPlaySlotSelection"] = json!(false);
+        let state = parse_lobby(&lobby);
+        assert_eq!(
+            (state.queue_id, state.queue),
+            (None, Some(Queue::PracticeTool))
+        );
+        assert!(state.slots.is_empty());
+
+        // Client catalog id, mode string absent.
+        lobby["gameConfig"]["gameMode"] = json!("CLASSIC");
+        lobby["gameConfig"]["queueId"] = json!(3140);
+        let state = parse_lobby(&lobby);
+        assert_eq!(
+            (state.queue_id, state.queue),
+            (Some(3140), Some(Queue::PracticeTool))
+        );
+        assert!(state.slots.is_empty());
+
+        // Mode wins over a Swiftplay id, and the slot flag must not relabel it.
+        lobby["gameConfig"]["gameMode"] = json!("practicetool");
+        lobby["gameConfig"]["queueId"] = json!(480);
+        lobby["gameConfig"]["showQuickPlaySlotSelection"] = json!(true);
+        let state = parse_lobby(&lobby);
+        assert_eq!(state.queue, Some(Queue::PracticeTool));
+        assert!(state.slots.is_empty());
+
+        // Generic custom is not Practice Tool.
+        lobby["gameConfig"]["gameMode"] = json!("CLASSIC");
+        lobby["gameConfig"]["queueId"] = json!(0);
+        lobby["gameConfig"]["showQuickPlaySlotSelection"] = json!(false);
+        let state = parse_lobby(&lobby);
+        assert_eq!(state.queue, None);
+        assert!(state.slots.is_empty());
+
+        // isPracticeTool without a useful mode string.
+        let mut marked = fixture("lobby_swiftplay.json");
+        marked["gameConfig"]["gameMode"] = json!("CLASSIC");
+        marked["gameConfig"]["queueId"] = json!(0);
+        marked["gameConfig"]["showQuickPlaySlotSelection"] = json!(false);
+        marked["isPracticeTool"] = json!(true);
+        let state = parse_lobby(&marked);
+        assert_eq!(state.queue, Some(Queue::PracticeTool));
+        assert!(state.slots.is_empty());
+    }
+
+    #[test]
+    fn practice_tool_champ_select_locks_like_a_draft() {
+        let session = fixture("champ_select_ranked.json");
+        let cs = parse_champ_select_with_mode(&session, Some(0), Some("PRACTICETOOL"), &roles());
+        assert_eq!(cs.queue, Some(Queue::PracticeTool));
+        assert_eq!(cs.my_champion_id, Some(83));
+        assert!(cs.my_champion_locked);
+
+        let cs = parse_champ_select_with_mode(&session, Some(3140), None, &roles());
+        assert_eq!(cs.queue, Some(Queue::PracticeTool));
+        assert!(cs.my_champion_locked);
+
+        // Queue id 0 or a classic custom is not Practice Tool without the mode.
+        let cs = parse_champ_select_with_mode(&session, Some(0), Some("CLASSIC"), &roles());
+        assert_eq!(cs.queue, None);
+        let cs = parse_champ_select(&session, Some(0), &roles());
+        assert_eq!((cs.queue_id, cs.queue), (Some(0), None));
+
+        // A completed pick is what locks. An in-progress hover does not.
+        let mut open = session;
+        for turn in open["actions"].as_array_mut().unwrap() {
+            let Some(actions) = turn.as_array_mut() else {
+                continue;
+            };
+            for action in actions {
+                if action.get("type").and_then(Value::as_str) == Some("pick")
+                    && action.get("actorCellId").and_then(Value::as_i64)
+                        == open.get("localPlayerCellId").and_then(Value::as_i64)
+                {
+                    action["completed"] = json!(false);
+                    action["isInProgress"] = json!(true);
+                }
+            }
+        }
+        let cs = parse_champ_select_with_mode(&open, Some(0), Some("PRACTICETOOL"), &roles());
+        assert_eq!(cs.queue, Some(Queue::PracticeTool));
+        assert!(!cs.my_champion_locked);
     }
 
     #[test]

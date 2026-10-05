@@ -52,6 +52,10 @@ Covered:
 - Dodge → new champ select → imports again, once (matchup build if the
   opponent is known at lock-in).
 - ARAM (450) and ARAM Mayhem (2400, 2450): unsupported. Nothing is imported.
+- Practice Tool (`gameMode` PRACTICETOOL, or queue id 3140): recognized.
+  Stats are ranked solo. Import works like a normal game (rune page and item
+  set only; summoner spells are never written). Queue id 0 alone is a generic
+  custom and stays unsupported. A custom classic lobby is not Practice Tool.
 - League closes mid-select, crashes during the import, or restarts with a new
   password → no panic, status "not connected", champ select cleared. A
   dropped connection after lock-in + reconnect into the same champ select →
@@ -169,6 +173,12 @@ once again when you lock in.
    imports nothing.
 2. Reroll or swap with the bench: still nothing is written.
 3. Your rune pages and item sets are unchanged.
+
+**Practice Tool**
+1. Play → Training → Practice Tool → Confirm.
+2. The app says Practice Tool. It does not say the mode isn't supported.
+3. In champ select, the Summoner's Rift build is shown. Import writes a rune
+   page and an item set, and does not change summoner spells.
 
 **E. Item sets**
 In the client (Collection → Items, or the in-game shop) your own item sets are

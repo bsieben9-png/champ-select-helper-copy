@@ -16,7 +16,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Stats | **Emerald+**, **World** by default; both changeable in Settings. |
 | Counters | Highest win rate vs the enemy in that role, ignoring matchups below a **minimum games** threshold. |
 | Jungle / Support | **Role vs role** (jungle vs enemy jungler, support vs enemy support). |
-| Modes | Ranked Solo/Duo, Ranked Flex, and Normals (Draft, Blind, Swiftplay, Quickplay). Normals and Swiftplay use ranked solo data. **ARAM and ARAM Mayhem are removed** (code kept on branch `saved/aram-mayhem`). |
+| Modes | Ranked Solo/Duo, Ranked Flex, and Normals (Draft, Blind, Swiftplay, Quickplay), plus Practice Tool (Summoner's Rift training). Normals, Swiftplay, and Practice Tool use ranked solo data. **ARAM and ARAM Mayhem are removed** (code kept on branch `saved/aram-mayhem`). |
 | Items | Full build (starting, core, 4th/5th/6th options, skill order) **plus** push an in-game **item set** to the client. |
 | Look | League-style dark: deep navy, gold accents, champion/rune/item icons. |
 | Extras | **My champion pool** (counters from your pool shown first/highlighted); **Manual lookup** mode (works with League closed). |

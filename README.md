@@ -33,6 +33,7 @@ champion before you've picked, it suggests easy **counter-picks**.
   only a recommendation: the app never changes them.
 - **Game modes**: Ranked Solo/Duo, Ranked Flex, and Normals (Draft, Blind,
   Swiftplay, and Quickplay; these use ranked data, which has more games).
+  Practice Tool (Summoner's Rift training) uses ranked solo stats.
   ARAM and ARAM Mayhem are not supported.
 - **Manual lookup**: look up any champion and matchup, even with League
   closed.

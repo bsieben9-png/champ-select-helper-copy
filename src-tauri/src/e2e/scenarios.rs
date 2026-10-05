@@ -1615,6 +1615,48 @@ async fn swiftplay_and_quickplay_show_lobby_slots_and_never_write_the_lobby() {
     }
 }
 
+/// Practice Tool is a custom Summoner's Rift game. The lobby is recognized
+/// from `gameMode` PRACTICETOOL even when the queue id is 0, and champ select
+/// imports once at lock-in (auto-import already on). A generic custom stays
+/// unsupported. Summoner spells are never written.
+#[tokio::test]
+async fn practice_tool_imports_once_at_lock_in() {
+    let mut h = Harness::new("e2e-practice", Settings::auto_on(), |_| {}).await;
+
+    h.client_shows_lobby("Lobby", 0, Some(plain_lobby(0)));
+    h.tick().await;
+    assert_eq!(h.lobby_state().await.queue, None, "classic custom is not practice");
+    assert!(h.writes().is_empty());
+
+    let mut lobby = plain_lobby(0);
+    lobby["gameConfig"]["gameMode"] = json!("PRACTICETOOL");
+    lobby["gameConfig"]["queueId"] = json!(0);
+    h.client_shows_lobby("Lobby", 0, Some(lobby));
+    h.tick().await;
+    let state = h.lobby_state().await;
+    assert_eq!(state.queue, Some(Queue::PracticeTool));
+    assert!(state.slots.is_empty(), "not a Swiftplay lobby");
+    assert!(h.writes().is_empty(), "no import from the lobby");
+
+    h.fake.state().game_mode = Some("PRACTICETOOL".into());
+    let draft = Draft::with_queue(0).hover(YORICK);
+    h.client_shows("ChampSelect", Some(&draft));
+    h.ticks(2).await;
+    let cs = h.champ_select().await;
+    assert_eq!(cs.queue, Some(Queue::PracticeTool));
+    assert_eq!(cs.my_champion_id, Some(YORICK));
+    assert!(!cs.my_champion_locked);
+    assert!(h.auto_imports().is_empty(), "nothing before lock-in");
+
+    h.client_shows("ChampSelect", Some(&draft.lock()));
+    h.ticks(2).await;
+    let imports = h.auto_imports();
+    assert_eq!(imports.len(), 1);
+    assert!(imports[0].result.runes && imports[0].result.item_set);
+    assert_eq!(h.writes().len(), 3, "{:?}", h.writes());
+    assert_never_touched_spells_or_defaults(&h.fake.state());
+}
+
 /// ARAM (450) and ARAM Mayhem (2400, 2450) are unsupported. The session is
 /// still champ select, and nothing is imported or written.
 #[tokio::test]

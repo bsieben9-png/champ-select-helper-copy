@@ -64,6 +64,11 @@ pub enum Queue {
     /// spells are picked per position in the LOBBY; there is no real champ
     /// select (see DESIGN.md "Swiftplay / Quickplay").
     Swiftplay,
+    /// Practice Tool: a custom Summoner's Rift game. The client sends
+    /// `gameMode` `PRACTICETOOL`. Its queue catalog also names id 3140
+    /// "Multiplayer Practice Tool Custom". Id 0 is a generic custom and is
+    /// not this mode. Stats are ranked solo.
+    PracticeTool,
 }
 
 impl Queue {
@@ -81,17 +86,29 @@ impl Queue {
             480..=483 | 490..=493 => Some(Queue::Swiftplay),
             // Clash: draft with lanes, use ranked solo data.
             700 => Some(Queue::NormalDraft),
+            // Client queue catalog: "Multiplayer Practice Tool Custom".
+            // Id 0 is generic custom and stays unmapped.
+            3140 => Some(Queue::PracticeTool),
             _ => None,
         }
     }
 
-    /// Queue name of u.gg's build/tier-list files. Normals and Swiftplay use
-    /// ranked solo data (bigger sample, has matchup builds).
+    /// `gameMode` from the lobby or the gameflow session. Only Practice Tool
+    /// is recognized here. Custom classic games stay `None`.
+    pub fn from_game_mode(mode: &str) -> Option<Queue> {
+        mode.eq_ignore_ascii_case("PRACTICETOOL")
+            .then_some(Queue::PracticeTool)
+    }
+
+    /// Queue name of u.gg's build/tier-list files. Normals, Swiftplay, and
+    /// Practice Tool use ranked solo data (bigger sample, has matchup builds).
     pub fn ugg_queue(self) -> &'static str {
         match self {
-            Queue::RankedSolo | Queue::NormalDraft | Queue::NormalBlind | Queue::Swiftplay => {
-                "ranked_solo_5x5"
-            }
+            Queue::RankedSolo
+            | Queue::NormalDraft
+            | Queue::NormalBlind
+            | Queue::Swiftplay
+            | Queue::PracticeTool => "ranked_solo_5x5",
             Queue::RankedFlex => "ranked_flex_sr",
         }
     }
@@ -472,12 +489,23 @@ mod tests {
             assert_eq!(Queue::from_lcu_queue_id(swift), Some(Queue::Swiftplay));
         }
         assert_eq!(Queue::from_lcu_queue_id(1700), None); // Arena
+        assert_eq!(Queue::from_lcu_queue_id(0), None); // generic custom
+        assert_eq!(Queue::from_lcu_queue_id(3140), Some(Queue::PracticeTool));
+        assert_eq!(Queue::from_game_mode("PRACTICETOOL"), Some(Queue::PracticeTool));
+        assert_eq!(Queue::from_game_mode("practicetool"), Some(Queue::PracticeTool));
+        assert_eq!(Queue::from_game_mode("CLASSIC"), None);
+        assert_eq!(Queue::PracticeTool.ugg_queue(), "ranked_solo_5x5");
+        assert!(!Queue::PracticeTool.is_lobby_pick());
         assert_eq!(Queue::Swiftplay.ugg_queue(), "ranked_solo_5x5");
         assert!(Queue::Swiftplay.is_lobby_pick());
         assert!(!Queue::NormalDraft.is_lobby_pick());
         assert_eq!(
             serde_json::to_string(&Queue::Swiftplay).unwrap(),
             "\"swiftplay\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Queue::PracticeTool).unwrap(),
+            "\"practice_tool\""
         );
     }
 }

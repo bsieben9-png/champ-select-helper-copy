@@ -161,7 +161,7 @@
     <Notice
       big
       title="This mode isn't supported"
-      detail="Champ Select Helper covers Ranked and Normals, including Swiftplay and Quickplay. ARAM and ARAM Mayhem are not shown or imported."
+      detail="Champ Select Helper covers Ranked and Normals, including Swiftplay and Quickplay, and Practice Tool. ARAM and ARAM Mayhem are not shown or imported."
     />
   </div>
 {:else if inGame && app.lastPick}
@@ -246,6 +246,16 @@
         detail="Choose your champions in the client's lobby: their builds show up here."
       />
     {/if}
+  </div>
+{:else if !cs.in_champ_select && isLobbyPhase(app.lcu.phase) && lobby.in_lobby && lobby.queue === "practice_tool"}
+  <div class="center">
+    <Notice
+      big
+      title="Practice Tool"
+      detail="Summoner's Rift training uses ranked solo stats. The build and Import button show up when champ select starts. Import writes a rune page and an item set, and never changes summoner spells."
+    >
+      {@render quickLookup()}
+    </Notice>
   </div>
 {:else if !cs.in_champ_select}
   <div class="center">

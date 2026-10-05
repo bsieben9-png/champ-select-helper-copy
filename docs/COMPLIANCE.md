@@ -52,7 +52,7 @@ has drawn publicly, and does strictly less than the big approved apps.
 |---|---|
 | "Exposing information that's intentionally obfuscated" | Never reads or shows other players' names, Riot IDs, PUUIDs, summoner ids, ranks or match history. Ranked champ select hides teammates' names; the app doesn't try to recover them. It shows only what the champ select screen shows you: your own pick and role, allies' picks/hovers, **locked** enemy champions, bans. Enemy *roles* are a guess from champion statistics (which lane each champion is usually played in), not from any hidden data; the UI marks them as guesses. Your own name (connection pill) comes from `/lol-summoner/v1/current-summoner` (you). |
 | "Taking actions on your behalf (botting or scripting)" | No queue accept, pick, ban, lock-in, dodge, chat, or spell change, ever. It writes only a rune page + an item set, by default **only when you press Import**. Opt-in Auto-import (off by default, f2a195d) makes one attempt when you lock in, never retried (6e411c7). See the auto-import note above. |
-| "Drawing conclusions for you during gameplay (ie we want to see you play the game first, then analyze and reflect later!)" | Nothing runs during the game except a cheap "which screen is the client on?" check to the client (not to the game), every 5 s. The app reads no live game data at all (no Live Client Data API, port 2999, no memory, no screen) and shows nothing new during the game. ARAM / ARAM Mayhem support is removed (code kept on branch `saved/aram-mayhem`). Supported modes are Ranked and Normals, including Swiftplay and Quickplay. |
+| "Drawing conclusions for you during gameplay (ie we want to see you play the game first, then analyze and reflect later!)" | Nothing runs during the game except a cheap "which screen is the client on?" check to the client (not to the game), every 5 s. The app reads no live game data at all (no Live Client Data API, port 2999, no memory, no screen) and shows nothing new during the game. ARAM / ARAM Mayhem support is removed (code kept on branch `saved/aram-mayhem`). Supported modes are Ranked and Normals, including Swiftplay and Quickplay, and Practice Tool (Summoner's Rift training; ranked solo stats). |
 | "Altering your field of intelligence (zoomhacks or global ult alerts)" | Nothing of the kind: no overlay, no timers, no cooldown tracking, no in-game alerts. |
 | Skin hacks / unauthorized services | None. |
 
@@ -247,7 +247,7 @@ Product name: Champ Select Helper
 
 Short description:
 A personal, non-commercial Windows desktop tool for League of Legends champion
-select (Ranked and Normal games). It shows public aggregate build statistics
+select (Ranked, Normal, and Practice Tool games). It shows public aggregate build statistics
 (runes, items, skill order, summoner spell recommendation, counter picks) for my
 champion and lane matchup, and can save a rune page and an item set into my
 League client.

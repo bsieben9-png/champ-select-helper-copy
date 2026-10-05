@@ -58,6 +58,8 @@ pub struct FakeState {
     pub phase: String,
     /// Queue id in `/lol-gameflow/v1/session` (None → no `gameData.queue`).
     pub queue_id: Option<i64>,
+    /// When set, replaces `gameData.queue.gameMode` and `map.gameMode`.
+    pub game_mode: Option<String>,
     /// `/lol-champ-select/v1/session`; None → 404 "No active delegate".
     pub session: Option<Value>,
     /// `/lol-lobby/v2/lobby`; None → 404 (not in a lobby).
@@ -118,6 +120,7 @@ impl FakeState {
             token: "fake-token".into(),
             phase: "None".into(),
             queue_id: None,
+            game_mode: None,
             session: None,
             lobby: None,
             summoner: lcu_fixture("current_summoner.json"),
@@ -264,6 +267,14 @@ impl FakeState {
                 match self.queue_id {
                     Some(q) => flow["gameData"]["queue"]["id"] = json!(q),
                     None => flow["gameData"] = json!({}),
+                }
+                if let Some(mode) = &self.game_mode {
+                    if flow["gameData"]["queue"].is_object() {
+                        flow["gameData"]["queue"]["gameMode"] = json!(mode);
+                    }
+                    if flow["map"].is_object() {
+                        flow["map"]["gameMode"] = json!(mode);
+                    }
                 }
                 (200, flow)
             }

@@ -1675,14 +1675,14 @@ pub(crate) mod tests {
 
         // A completed pick is what locks. An in-progress hover does not.
         let mut open = session;
+        let my_cell = open.get("localPlayerCellId").and_then(Value::as_i64);
         for turn in open["actions"].as_array_mut().unwrap() {
             let Some(actions) = turn.as_array_mut() else {
                 continue;
             };
             for action in actions {
                 if action.get("type").and_then(Value::as_str) == Some("pick")
-                    && action.get("actorCellId").and_then(Value::as_i64)
-                        == open.get("localPlayerCellId").and_then(Value::as_i64)
+                    && action.get("actorCellId").and_then(Value::as_i64) == my_cell
                 {
                     action["completed"] = json!(false);
                     action["isInProgress"] = json!(true);

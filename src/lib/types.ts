@@ -8,8 +8,8 @@ export type Queue =
   | "ranked_flex"
   | "normal_draft"
   | "normal_blind"
-  | "aram"
-  | "aram_mayhem";
+  /** Swiftplay (480) / old Quickplay (490): champions picked in the lobby. */
+  | "swiftplay";
 
 /** Stats provider. Only u.gg for now; more may be added later. */
 export type Source = "ugg";
@@ -95,8 +95,7 @@ export interface Build {
   skill_order: string[];
   skill_priority: string;
   available_roles: Role[];
-  /** ARAM Mayhem only (empty otherwise): prismatic, then gold, then silver;
-   * best first within each rarity. */
+  /** Unused. ARAM Mayhem was removed. Always empty. */
   augments: AugmentOption[];
 }
 
@@ -193,6 +192,26 @@ export interface ChampSelectState {
   enemies: EnemyPick[];
   lane_opponent_id: number | null;
   bans: number[];
+}
+
+/** One of my Swiftplay / Quickplay lobby slots (champion + position picked
+ *  before queueing). */
+export interface LobbySlot {
+  /** Index in the client's playerSlots (0 = primary position). */
+  index: number;
+  champion_id: number | null;
+  /** null for FILL / UNSELECTED. */
+  role: Role | null;
+}
+
+/** The lobby before queueing (`lobby` event), Lobby / Matchmaking / ReadyCheck. */
+export interface LobbyState {
+  in_lobby: boolean;
+  queue_id: number | null;
+  queue: Queue | null;
+  /** Swiftplay / Quickplay only (empty otherwise). Read only: the app never
+   *  changes the lobby. */
+  slots: LobbySlot[];
 }
 
 export interface LcuStatus {

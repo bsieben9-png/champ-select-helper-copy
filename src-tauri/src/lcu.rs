@@ -38,11 +38,13 @@ const DEFAULT_INSTALL_DIR: &str = r"C:\Riot Games\League of Legends";
 const PREFIX: &str = "CSH:";
 /// Max rune page name length we create.
 const RUNE_PAGE_NAME_MAX: usize = 25;
-/// Summoner's Rift / Howling Abyss map ids for item sets.
+/// Summoner's Rift map id for item sets.
 const MAP_SUMMONERS_RIFT: u32 = 11;
-const MAP_HOWLING_ABYSS: u32 = 12;
 /// Largest League client reply we read (a long item-set list is ~1 MB).
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// Read only. The app never writes to the lobby (owner rule: nothing that
+/// changes lobby / champ select / summoner spells, only rune pages + item sets).
+const LOBBY: &str = "/lol-lobby/v2/lobby";
 
 #[derive(Clone)]
 pub struct LcuClient {
@@ -284,6 +286,18 @@ impl LcuClient {
         }))
     }
 
+    /// The lobby (`GET /lol-lobby/v2/lobby`); default/not-in-lobby when none.
+    pub async fn lobby(&self) -> anyhow::Result<LobbyState> {
+        let (st, lobby) = self.request(Method::GET, LOBBY, None).await?;
+        if st == StatusCode::NOT_FOUND {
+            return Ok(LobbyState::default());
+        }
+        if !st.is_success() {
+            bail!("GET {LOBBY}: {}", http_error(st, &lobby));
+        }
+        Ok(parse_lobby(&lobby))
+    }
+
     /// Push the rune page and item set (per settings toggles) into the
     /// client. Summoner spells are never changed. Never panics; failures are
     /// reported in `ImportResult.messages`.
@@ -362,18 +376,8 @@ impl LcuClient {
         overwrite: Option<u64>,
     ) -> anyhow::Result<RunesOutcome> {
         let runes = &build.runes;
-        if runes.primary_style == 0
-            || runes.sub_style == 0
-            || runes.perks.len() != 6
-            || runes.shards.len() != 3
-        {
-            bail!("the build has an incomplete rune page");
-        }
+        let selected = selected_perk_ids(runes, static_data)?;
         let mut notes = Vec::new();
-        let selected: Vec<u32> = ordered_perks(runes, static_data)
-            .into_iter()
-            .chain(runes.shards.iter().copied())
-            .collect();
         let body = json!({
             "name": name,
             "primaryStyleId": runes.primary_style,
@@ -632,15 +636,10 @@ pub fn parse_champ_select(
     let cell_of = |v: &Value, key: &str| v.get(key).and_then(Value::as_i64);
 
     let queue = queue_id.and_then(Queue::from_lcu_queue_id);
-    let is_aram = queue.is_some_and(Queue::is_aram);
     let position = |p: &Value| {
-        if is_aram {
-            None
-        } else {
-            p.get("assignedPosition")
-                .and_then(Value::as_str)
-                .and_then(Role::from_lcu_position)
-        }
+        p.get("assignedPosition")
+            .and_then(Value::as_str)
+            .and_then(Role::from_lcu_position)
     };
 
     // Me.
@@ -667,11 +666,20 @@ pub fn parse_champ_select(
             .or(hovered)
             .or_else(|| nonzero(num(p, "championPickIntent")))
     });
+    // Swiftplay / Quickplay: the champion (and its runes) were picked in the
+    // lobby and the client only shows a short "skip champion select" screen.
+    // Nothing gets locked in here, so nothing is auto-imported: the runes for
+    // this game are the ones the user chose for the lobby slot, and a rune
+    // page made current now must not compete with them. (Lobby builds are
+    // imported by hand only, see `lobby.rs`.)
+    let skip_select = flag(session, "skipChampionSelect");
+    let lobby_pick = queue.is_some_and(Queue::is_lobby_pick);
     let my_champion_locked = my_champion_id.is_some()
+        && !skip_select
         && if my_picks.is_empty() {
-            // ARAM / all-random: no pick actions — the assigned champion is final
-            // (bench swaps/rerolls just change the champion id).
-            me.is_some_and(|p| num(p, "championId") != 0)
+            // No pick actions: an assigned champion counts as final, except
+            // Swiftplay / Quickplay, where the pick already happened in the lobby.
+            !lobby_pick && me.is_some_and(|p| num(p, "championId") != 0)
         } else {
             // Any completed own pick (trades can later change the champion id).
             my_picks.iter().any(|a| flag(a, "completed"))
@@ -730,41 +738,30 @@ pub fn parse_champ_select(
         })
         .collect();
     let known: Vec<Option<Role>> = their_team.iter().map(position).collect();
-    let enemies: Vec<EnemyPick> = if is_aram {
-        enemy_ids
-            .iter()
-            .map(|&champion_id| EnemyPick {
+    // Roles the client tells us are fixed; guess the rest among the remaining roles.
+    let taken: Vec<Role> = known.iter().flatten().copied().collect();
+    let unknown_ids: Vec<u32> = enemy_ids
+        .iter()
+        .zip(&known)
+        .map(|(&id, k)| if k.is_some() { 0 } else { id })
+        .collect();
+    let guessed = infer_roles_excluding(&unknown_ids, roles, &taken);
+    let enemies: Vec<EnemyPick> = enemy_ids
+        .iter()
+        .zip(known.iter().zip(guessed))
+        .map(|(&champion_id, (known, guessed))| match known {
+            Some(role) => EnemyPick {
                 champion_id,
-                role: None,
+                role: Some(*role),
                 role_inferred: false,
-            })
-            .collect()
-    } else {
-        // Roles the client tells us are fixed; guess the rest among the remaining roles.
-        let taken: Vec<Role> = known.iter().flatten().copied().collect();
-        let unknown_ids: Vec<u32> = enemy_ids
-            .iter()
-            .zip(&known)
-            .map(|(&id, k)| if k.is_some() { 0 } else { id })
-            .collect();
-        let guessed = infer_roles_excluding(&unknown_ids, roles, &taken);
-        enemy_ids
-            .iter()
-            .zip(known.iter().zip(guessed))
-            .map(|(&champion_id, (known, guessed))| match known {
-                Some(role) => EnemyPick {
-                    champion_id,
-                    role: Some(*role),
-                    role_inferred: false,
-                },
-                None => EnemyPick {
-                    champion_id,
-                    role: guessed,
-                    role_inferred: guessed.is_some(),
-                },
-            })
-            .collect()
-    };
+            },
+            None => EnemyPick {
+                champion_id,
+                role: guessed,
+                role_inferred: guessed.is_some(),
+            },
+        })
+        .collect();
 
     let lane_opponent_id = my_role.and_then(|role| {
         enemies
@@ -785,6 +782,57 @@ pub fn parse_champ_select(
         lane_opponent_id,
         bans,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Lobby (Swiftplay / Quickplay slots)
+// ---------------------------------------------------------------------------
+
+/// Pure: turn a `/lol-lobby/v2/lobby` JSON into our state. My slots are only
+/// read for lobby-pick queues (Swiftplay / Quickplay), where
+/// `gameConfig.showQuickPlaySlotSelection` is true.
+pub fn parse_lobby(lobby: &Value) -> LobbyState {
+    let config = lobby.get("gameConfig").unwrap_or(&Value::Null);
+    let queue_id = config
+        .get("queueId")
+        .and_then(Value::as_i64)
+        .filter(|&q| q > 0);
+    let mut queue = queue_id.and_then(Queue::from_lcu_queue_id);
+    let lobby_pick =
+        flag(config, "showQuickPlaySlotSelection") || queue.is_some_and(Queue::is_lobby_pick);
+    if lobby_pick && queue.is_none() {
+        // A new lobby-pick queue id we don't know yet.
+        queue = Some(Queue::Swiftplay);
+    }
+    let slots = if lobby_pick {
+        lobby
+            .pointer("/localMember/playerSlots")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .map(|(index, slot)| LobbySlot {
+                index,
+                champion_id: nonzero(num(slot, "championId")),
+                role: slot_position(slot),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    LobbyState {
+        in_lobby: true,
+        queue_id,
+        queue,
+        slots,
+    }
+}
+
+/// A slot's role from `positionPreference` ("FILL" / "UNSELECTED" → None).
+fn slot_position(slot: &Value) -> Option<Role> {
+    slot.get("positionPreference")
+        .and_then(Value::as_str)
+        .and_then(Role::from_lcu_position)
 }
 
 /// Score for playing a champion in its k-th most played role.
@@ -953,14 +1001,13 @@ fn champion_name(static_data: Option<&StaticData>, id: u32) -> String {
         .unwrap_or_else(|| id.to_string())
 }
 
-fn role_label(role: Option<Role>, queue: Queue) -> &'static str {
+fn role_label(role: Option<Role>) -> &'static str {
     match role {
         Some(Role::Top) => "Top",
         Some(Role::Jungle) => "Jungle",
         Some(Role::Mid) => "Mid",
         Some(Role::Adc) => "ADC",
         Some(Role::Support) => "Support",
-        None if queue.is_aram() => "ARAM",
         None => "",
     }
 }
@@ -1001,7 +1048,7 @@ fn build_title(build: &Build, static_data: Option<&StaticData>) -> String {
         Some(opp) if !build.fell_back_to_general => {
             format!("{PREFIX} {champ} vs {}", champion_name(static_data, opp))
         }
-        _ => format!("{PREFIX} {champ} {}", role_label(build.role, build.queue))
+        _ => format!("{PREFIX} {champ} {}", role_label(build.role))
             .trim_end()
             .to_string(),
     }
@@ -1046,6 +1093,25 @@ fn ordered_perks(runes: &RunePage, static_data: Option<&StaticData>) -> Vec<u32>
     } else {
         original
     }
+}
+
+/// The 9 ids of a rune page as the client wants them: the 6 perks in slot
+/// order, then the 3 shards.
+fn selected_perk_ids(
+    runes: &RunePage,
+    static_data: Option<&StaticData>,
+) -> anyhow::Result<Vec<u32>> {
+    if runes.primary_style == 0
+        || runes.sub_style == 0
+        || runes.perks.len() != 6
+        || runes.shards.len() != 3
+    {
+        bail!("the build has an incomplete rune page");
+    }
+    Ok(ordered_perks(runes, static_data)
+        .into_iter()
+        .chain(runes.shards.iter().copied())
+        .collect())
 }
 
 fn truncate_chars(s: &str, max: usize) -> String {
@@ -1111,11 +1177,7 @@ fn make_item_set(build: &Build, title: &str, uid: &str) -> Value {
         })
     })
     .collect();
-    let map = if build.queue.is_aram() {
-        MAP_HOWLING_ABYSS
-    } else {
-        MAP_SUMMONERS_RIFT
-    };
+    let map = MAP_SUMMONERS_RIFT;
     json!({
         "uid": uid,
         "title": title,
@@ -1370,19 +1432,143 @@ pub(crate) mod tests {
     #[test]
     fn aram_session() {
         let cs = parse_champ_select(&fixture("champ_select_aram.json"), Some(450), &roles());
-        assert_eq!(cs.queue, Some(Queue::Aram));
+        assert_eq!(cs.queue, None, "ARAM is unsupported");
         assert_eq!(cs.my_role, None);
         assert_eq!(cs.my_champion_id, Some(83));
-        // No pick actions in ARAM: the assigned champion counts as locked.
-        assert!(cs.my_champion_locked);
         assert_eq!(cs.allies.len(), 5);
         assert!(cs.allies[2].is_me && cs.allies.iter().all(|a| a.role.is_none()));
         assert!(cs.enemies.is_empty());
         assert_eq!(cs.lane_opponent_id, None);
 
         let mayhem = parse_champ_select(&fixture("champ_select_aram.json"), Some(2400), &roles());
-        assert_eq!(mayhem.queue, Some(Queue::AramMayhem));
+        assert_eq!(mayhem.queue, None, "ARAM Mayhem is unsupported");
         assert_eq!(mayhem.my_role, None);
+    }
+
+    #[test]
+    fn mayhem_session_with_bench_and_rerolls() {
+        let mut session = fixture("champ_select_aram.json");
+        session["queueId"] = json!(2400);
+        let cs = parse_champ_select(&session, Some(2400), &roles());
+        assert_eq!(cs.queue, None);
+        assert_eq!((cs.my_champion_id, cs.my_role), (Some(83), None));
+        assert!(
+            cs.my_champion_locked,
+            "assigned champion counts as the pick"
+        );
+        // Bench champions are not mine and not enemies.
+        assert!(cs.enemies.is_empty());
+        assert!(cs
+            .allies
+            .iter()
+            .all(|a| a.champion_id != 22 && a.champion_id != 201));
+        // Bench swap / reroll: a new champion id.
+        session["myTeam"][2]["championId"] = json!(22);
+        let cs = parse_champ_select(&session, Some(2400), &roles());
+        assert_eq!(cs.my_champion_id, Some(22));
+        assert!(cs.my_champion_locked);
+        // The moment of a swap without a champion: nothing locked.
+        session["myTeam"][2]["championId"] = json!(0);
+        let cs = parse_champ_select(&session, Some(2400), &roles());
+        assert_eq!(cs.my_champion_id, None);
+        assert!(!cs.my_champion_locked);
+    }
+
+    /// Swiftplay's short "skip champion select" step: the champion comes from
+    /// the lobby slot; nothing is locked in, so the watcher never auto-imports
+    /// over the runes the user picked for that slot.
+    #[test]
+    fn swiftplay_skip_champ_select_is_never_locked() {
+        let mut session = fixture("champ_select_aram.json");
+        session["benchEnabled"] = json!(false);
+        session["benchChampions"] = json!([]);
+        session["skipChampionSelect"] = json!(true);
+        session["myTeam"][2]["assignedPosition"] = json!("top");
+        for queue in [480, 490] {
+            let cs = parse_champ_select(&session, Some(queue), &roles());
+            assert_eq!(cs.queue, Some(Queue::Swiftplay));
+            assert_eq!((cs.my_champion_id, cs.my_role), (Some(83), Some(Top)));
+            assert!(!cs.my_champion_locked, "queue {queue}");
+        }
+        // Even without the flag: a lobby-pick queue without pick actions.
+        session["skipChampionSelect"] = json!(false);
+        assert!(!parse_champ_select(&session, Some(480), &roles()).my_champion_locked);
+        // The flag alone (any queue) also means nothing to lock.
+        session["skipChampionSelect"] = json!(true);
+        assert!(!parse_champ_select(&session, Some(450), &roles()).my_champion_locked);
+    }
+
+    #[test]
+    fn swiftplay_lobby_slots() {
+        let lobby = parse_lobby(&fixture("lobby_swiftplay.json"));
+        assert!(lobby.in_lobby);
+        assert_eq!(
+            (lobby.queue_id, lobby.queue),
+            (Some(480), Some(Queue::Swiftplay))
+        );
+        assert_eq!(
+            lobby.slots,
+            vec![
+                LobbySlot {
+                    index: 0,
+                    champion_id: Some(83),
+                    role: Some(Top)
+                },
+                // -1 = no champion, FILL = no role.
+                LobbySlot {
+                    index: 1,
+                    champion_id: None,
+                    role: None
+                },
+            ]
+        );
+
+        // Quickplay (490) reports game mode CLASSIC; positions in any case.
+        let mut quick = fixture("lobby_swiftplay.json");
+        quick["gameConfig"]["queueId"] = json!(490);
+        quick["gameConfig"]["gameMode"] = json!("CLASSIC");
+        quick["localMember"]["playerSlots"][1]["championId"] = json!(103);
+        quick["localMember"]["playerSlots"][1]["positionPreference"] = json!("MIDDLE");
+        let lobby = parse_lobby(&quick);
+        assert_eq!(lobby.queue, Some(Queue::Swiftplay));
+        assert_eq!(lobby.slots[1].champion_id, Some(103));
+        assert_eq!(lobby.slots[1].role, Some(Mid));
+        for (pos, role) in [
+            ("JUNGLE", Some(Jungle)),
+            ("BOTTOM", Some(Adc)),
+            ("UTILITY", Some(Support)),
+            ("UNSELECTED", None),
+            ("", None),
+        ] {
+            quick["localMember"]["playerSlots"][0]["positionPreference"] = json!(pos);
+            assert_eq!(parse_lobby(&quick).slots[0].role, role, "{pos}");
+        }
+
+        // An unknown lobby-pick queue id still counts (slot selection shown).
+        quick["gameConfig"]["queueId"] = json!(499);
+        let lobby = parse_lobby(&quick);
+        assert_eq!(
+            (lobby.queue_id, lobby.queue),
+            (Some(499), Some(Queue::Swiftplay))
+        );
+        assert_eq!(lobby.slots.len(), 2);
+    }
+
+    #[test]
+    fn other_lobbies_have_no_slots() {
+        for queue in [420, 440, 400, 2400] {
+            let mut lobby = fixture("lobby_swiftplay.json");
+            lobby["gameConfig"]["queueId"] = json!(queue);
+            lobby["gameConfig"]["showQuickPlaySlotSelection"] = json!(false);
+            let state = parse_lobby(&lobby);
+            assert!(state.in_lobby);
+            assert_eq!(state.queue, Queue::from_lcu_queue_id(queue));
+            assert!(state.slots.is_empty(), "{queue}");
+        }
+        for junk in [json!(null), json!({}), json!([]), json!({"gameConfig": 5})] {
+            let state = parse_lobby(&junk);
+            assert_eq!((state.queue, state.slots.len()), (None, 0));
+        }
     }
 
     #[test]
@@ -1678,8 +1864,8 @@ pub(crate) mod tests {
         build.opponent_id = None;
         build.fell_back_to_general = false;
         build.role = None;
-        build.queue = Queue::Aram;
-        assert_eq!(build_title(&build, Some(&sd)), "CSH: Yorick ARAM");
+        build.queue = Queue::RankedSolo;
+        assert_eq!(build_title(&build, Some(&sd)), "CSH: Yorick");
 
         build.champion_id = 136;
         build.opponent_id = Some(20);
@@ -1722,10 +1908,6 @@ pub(crate) mod tests {
             json!([{"id": "6631", "count": 1}, {"id": "3047", "count": 1}, {"id": "3053", "count": 1}])
         );
 
-        let mut aram = sample_build();
-        aram.queue = Queue::AramMayhem;
-        let set = make_item_set(&aram, "CSH: Yorick ARAM", "uid-2");
-        assert_eq!(set["associatedMaps"], json!([12]));
     }
 
     #[test]
@@ -2359,7 +2541,7 @@ pub(crate) mod tests {
             m.session = Some(fixture("champ_select_aram.json"));
         }
         let cs = client.champ_select(&roles()).await.unwrap();
-        assert_eq!(cs.queue, Some(Queue::Aram));
+        assert_eq!(cs.queue, None);
     }
 
     #[tokio::test]

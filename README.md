@@ -31,9 +31,9 @@ champion before you've picked, it suggests easy **counter-picks**.
   adds an in-game **item set**. (Optional: turn on auto-import in Settings
   to do it once when you lock in; it's off by default.) Summoner spells are
   only a recommendation: the app never changes them.
-- **Game modes**: Ranked Solo/Duo, Ranked Flex, Normals (Draft, Blind,
-  Quickplay; these use ranked data, which has more games) and ARAM. ARAM
-  Mayhem uses normal ARAM data for now.
+- **Game modes**: Ranked Solo/Duo, Ranked Flex, and Normals (Draft, Blind,
+  Swiftplay, and Quickplay; these use ranked data, which has more games).
+  ARAM and ARAM Mayhem are not supported.
 - **Manual lookup**: look up any champion and matchup, even with League
   closed.
 - **Settings**: rank filter (Emerald+ by default), region (World by

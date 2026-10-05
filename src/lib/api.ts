@@ -10,6 +10,7 @@ import type {
   Counter,
   ImportResult,
   LcuStatus,
+  LobbyState,
   MatchupStat,
   Queue,
   Role,
@@ -91,6 +92,8 @@ export const saveSettings = (newSettings: Settings) => call<void>("save_settings
 
 export const getChampSelect = () => call<ChampSelectState>("get_champ_select");
 export const getLcuStatus = () => call<LcuStatus>("get_lcu_status");
+/** My Swiftplay / Quickplay lobby slots (read only). */
+export const getLobby = () => call<LobbyState>("get_lobby");
 /** Push a build into the client. Pass `overwritePageId` only after the user
  *  confirmed overwriting the page named in `ImportResult.needs_confirmation`. */
 export const importBuild = (build: Build, overwritePageId: number | null = null) =>
@@ -103,3 +106,4 @@ async function on<T>(event: string, cb: (payload: T) => void): Promise<Unlisten>
 export const onLcuStatus = (cb: (s: LcuStatus) => void) => on("lcu-status", cb);
 export const onChampSelect = (cb: (s: ChampSelectState) => void) => on("champ-select", cb);
 export const onAutoImported = (cb: (e: AutoImportEvent) => void) => on("auto-imported", cb);
+export const onLobby = (cb: (s: LobbyState) => void) => on("lobby", cb);

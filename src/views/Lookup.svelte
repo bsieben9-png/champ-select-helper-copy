@@ -10,13 +10,12 @@
   import Segmented from "../lib/components/Segmented.svelte";
   import Spinner from "../lib/components/Spinner.svelte";
   import TierList from "../lib/components/TierList.svelte";
-  import { LOOKUP_QUEUES, ROLE_LABEL, ROLE_SHORT, isAram } from "../lib/format";
+  import { LOOKUP_QUEUES, ROLE_LABEL, ROLE_SHORT } from "../lib/format";
   import { tip } from "../lib/tooltip";
   import { ROLES, type Build, type Queue, type Role } from "../lib/types";
 
   const L = app.lookup;
   const champ = $derived(L.championId ? app.champs.get(L.championId) : undefined);
-  const aram = $derived(isAram(L.queue));
   const role = $derived<Role>(L.role ?? champ?.roles[0] ?? "top");
   const name = $derived(champ?.name ?? "");
   let importing = $state(false);
@@ -33,13 +32,13 @@
 
   const tabs = $derived<{ id: LookupTab; label: string; disabled: boolean }[]>([
     { id: "build", label: "Build", disabled: !L.championId },
-    { id: "counters", label: name ? `Who beats ${name}` : "Counters", disabled: !L.championId || aram },
-    { id: "matchups", label: "Matchups", disabled: !L.championId || aram },
-    { id: "tiers", label: `Tier list${aram ? "" : ` · ${ROLE_SHORT[role]}`}`, disabled: aram },
+    { id: "counters", label: name ? `Who beats ${name}` : "Counters", disabled: !L.championId },
+    { id: "matchups", label: "Matchups", disabled: !L.championId },
+    { id: "tiers", label: `Tier list · ${ROLE_SHORT[role]}`, disabled: false },
   ]);
   // Fall back to an enabled tab when the current one becomes unavailable.
   const tab = $derived<LookupTab>(
-    tabs.find((t) => t.id === L.tab && !t.disabled)?.id ?? (L.championId ? "build" : aram ? "build" : "tiers"),
+    tabs.find((t) => t.id === L.tab && !t.disabled)?.id ?? (L.championId ? "build" : "tiers"),
   );
 
   async function doImport(build: Build) {
@@ -59,8 +58,7 @@
       <span class="eyebrow">Role</span>
       <Segmented
         label="Role"
-        disabled={aram}
-        value={aram ? null : role}
+        value={role}
         onchange={(r: Role) => (L.role = r)}
         options={ROLES.map((r) => ({
           value: r,
@@ -78,12 +76,11 @@
       <span class="eyebrow">Opponent</span>
       <ChampPicker
         label="Opponent"
-        value={aram ? null : L.opponentId}
+        value={L.opponentId}
         onchange={(id) => (L.opponentId = id)}
         placeholder="Any opponent"
         clearable
         exclude={L.championId}
-        disabled={aram}
         width={190}
       />
     </div>
@@ -106,8 +103,8 @@
   {#if tab === "build" && L.championId}
     <BuildPanel
       championId={L.championId}
-      role={aram ? null : role}
-      opponentId={aram ? null : L.opponentId}
+      {role}
+      opponentId={L.opponentId}
       queue={L.queue}
       showRoleTabs={false}
     >
@@ -135,7 +132,7 @@
     </CounterGrid>
   {:else if tab === "matchups" && L.championId}
     <MatchupList championId={L.championId} {role} queue={L.queue} />
-  {:else if tab === "tiers" && !aram}
+  {:else if tab === "tiers"}
     <TierList {role} queue={L.queue}>
       {#snippet title()}
         <span class="eyebrow">Tier list — {ROLE_LABEL[role]}</span>

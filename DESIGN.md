@@ -16,7 +16,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Stats | **Emerald+**, **World** by default; both changeable in Settings. |
 | Counters | Highest win rate vs the enemy in that role, ignoring matchups below a **minimum games** threshold. |
 | Jungle / Support | **Role vs role** (jungle vs enemy jungler, support vs enemy support). |
-| Modes | Ranked Solo/Duo, Normal Draft/Flex (use ranked solo data), and **ARAM Mayhem** (the only ARAM mode the owner plays). Mayhem means builds **plus an augment ranking**: augments are picked in-game, so the app keeps the Mayhem build and augments visible during the game. Normal ARAM is low priority. |
+| Modes | Ranked Solo/Duo, Ranked Flex, and Normals (Draft, Blind, Swiftplay, Quickplay). Normals and Swiftplay use ranked solo data. **ARAM and ARAM Mayhem are removed** (code kept on branch `saved/aram-mayhem`). |
 | Items | Full build (starting, core, 4th/5th/6th options, skill order) **plus** push an in-game **item set** to the client. |
 | Look | League-style dark: deep navy, gold accents, champion/rune/item icons. |
 | Extras | **My champion pool** (counters from your pool shown first/highlighted); **Manual lookup** mode (works with League closed). |
@@ -24,7 +24,7 @@ counter-picks when you see an enemy champion, before you've picked.
 | Import timing | Auto-import is **OFF by default** (owner decision, most cautious under Riot's "don't automate player decisions" rule). When turned on in Settings, it makes **exactly one attempt, at the moment you lock in** (never retried, never re-imports), using the lane opponent known then. Manual **Import** button any time. |
 | Blind / first pick | Show the **tier list for my role** until the lane opponent is visible. |
 | Summoner spells | **Recommendation only.** The app never changes your spells (Flash on D vs F is personal). |
-| Priority | **Working properly over new features.** Modes that matter: **Ranked, Normals, ARAM Mayhem**. |
+| Priority | **Working properly over new features.** Modes that matter: **Ranked and Normals**. |
 | Data sources | u.gg now. Later: a **source dropdown** (Lolalytics first). A "Consensus" entry may come after that. Builds carry a `source` field. |
 
 Tier list: `{base}/champion_ranking/{regionKey}/{patch}/{queue}/{rankKey}/{ver}.json`. Note this one uses

@@ -2,12 +2,11 @@
   import type { Snippet } from "svelte";
   import * as api from "../api";
   import { app } from "../app.svelte";
-  import { QUEUE_LABEL, ROLE_LABEL, isAram, patchLabel, rankLabel, regionLabel, sourceLabel } from "../format";
+  import { ROLE_LABEL, patchLabel, rankLabel, regionLabel, sourceLabel } from "../format";
   import { Loader } from "../loader.svelte";
   import type { Build, Queue, Role } from "../types";
   import ChampIcon from "./ChampIcon.svelte";
   import Img from "./Img.svelte";
-  import Augments from "./Augments.svelte";
   import Items from "./Items.svelte";
   import Notice from "./Notice.svelte";
   import RoleIcon from "./RoleIcon.svelte";
@@ -41,14 +40,12 @@
   const loader = new Loader<Build>();
 
   $effect(() => {
-    const args = [championId, isAram(queue) ? null : role, isAram(queue) ? null : opponentId, queue] as const;
+    const args = [championId, role, opponentId, queue] as const;
     void app.statsVersion; // refetch when rank/region/... change
     loader.run(() => api.getBuild(...args));
   });
 
   const build = $derived(loader.data);
-  // Older backends may not send `augments` at all.
-  const augments = $derived(build?.augments ?? []);
   // Show the build's own role (the backend may pick the main role for `null`).
   const shownRole = $derived(build?.role ?? role);
   const spellTip = (id: number) => app.spells.get(id)?.name ?? `Spell ${id}`;
@@ -60,7 +57,7 @@
     <div class="title-block">
       <div class="title">
         <span class="name">{app.champName(championId)}</span>
-        {#if opponentId && !isAram(queue)}
+        {#if opponentId}
           <span class="vs">vs</span>
           <ChampIcon id={opponentId} size={22} />
           <span class="name opp">{app.champName(opponentId)}</span>
@@ -71,10 +68,8 @@
       <div class="meta">
         {#if shownRole}
           <span class="role"><RoleIcon role={shownRole} size={13} />{ROLE_LABEL[shownRole]}</span>
-        {:else if isAram(queue)}
-          <span class="role">{QUEUE_LABEL[queue]}</span>
         {/if}
-        {#if (shownRole || isAram(queue)) && (build || loader.loading)}<span class="sep">·</span>{/if}
+        {#if shownRole && (build || loader.loading)}<span class="sep">·</span>{/if}
         {#if build}
           <WinRate wr={build.win_rate} games={build.games} />
           <span class="sep">·</span>
@@ -134,11 +129,6 @@
     </Notice>
   {:else if build}
     <div class="body" class:stale={loader.loading}>
-      {#if augments.length}
-        <div class="card augments-card">
-          <Augments {augments} />
-        </div>
-      {/if}
       <div class="card runes-card">
         <div class="card-head">
           <span class="eyebrow">Runes</span>
@@ -347,8 +337,7 @@
     gap: 10px;
     margin-bottom: 8px;
   }
-  .items-card,
-  .augments-card {
+  .items-card {
     grid-column: 1 / -1;
   }
   .side {

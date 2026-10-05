@@ -3,17 +3,24 @@
 // uses real u.gg numbers) or generated deterministically.
 //
 // Dev URL params:
-//   ?mock=champselect   (default) in champ select, hovering Yorick top vs Gwen
+//   ?mock=champselect   (default) Ranked Solo/Duo, hovering Yorick top vs Gwen
+//                       (build + counter picks vs Gwen below it until lock-in)
+//   ?mock=draft         Normal Draft (400), same picks
+//   ?mock=flex          Ranked Flex (440), Yorick locked
+//   ?mock=trade         Yorick locked + auto-imported, then traded to Garen →
+//                       "Your imported runes are for Yorick — Import Garen?"
+//   ?mock=swiftplay     Swiftplay lobby: Yorick top + Ahri mid picked per position
+//   ?mock=quickplay     the same as a Quickplay (490) lobby
+//   ?mock=swiftplay-cs  Swiftplay's short skip-champ-select step (nothing to lock)
 //   ?mock=counters      in champ select, nothing picked yet → counter picks
 //   ?mock=locked        Yorick locked → fires an `auto-imported` event
 //   ?mock=fullpages     like locked, but all rune pages are full → overwrite prompt
 //   ?mock=late          Yorick locked + auto-imported before Gwen locked → Gwen
 //                       locks later → "Import matchup build?" hint
 //   ?mock=blind         in champ select, lane opponent unknown → tier list
-//   ?mock=mayhem        ARAM Mayhem champ select (build + augments)
-//   ?mock=ingame        Mayhem champ select, then the game starts (InProgress)
-//                       → Live keeps showing the build/augments
-//   ?mock=aram          ARAM champ select
+//   ?mock=ingame        ranked champ select, then the game starts (InProgress)
+//   ?mock=aram          ARAM champ select: unsupported, nothing imported
+//   ?mock=mayhem        ARAM Mayhem champ select: unsupported, nothing imported
 //   ?mock=lobby         client open, in lobby
 //   ?mock=disconnected  League not running
 //   ?mock=cycle         walks through the states above over ~15 s
@@ -31,13 +38,13 @@ import type {
   ItemInfo,
   ItemOption,
   LcuStatus,
+  LobbyState,
   MatchupStat,
   Queue,
   Role,
   RuneInfo,
   RuneStyle,
   Settings,
-  AugmentOption,
   SpellInfo,
   StaticData,
   TierEntry,
@@ -292,40 +299,7 @@ function skillOrder(priority: string): string[] {
 
 const YORICK = 83;
 const GWEN = 887;
-
-// Fake ARAM Mayhem augments. Icons are left empty on purpose so the UI's
-// letter-badge fallback is exercised (real icons aren't on ddragon).
-const AUGMENTS: [string, string, string][] = [
-  ["Goliath", "prismatic", "Grow much larger, gaining bonus health and adaptive force."],
-  ["Infernal Conduit", "prismatic", "Burning enemies refunds part of your basic ability cooldowns."],
-  ["Jeweled Gauntlet", "prismatic", "Your abilities can critically strike."],
-  ["Back to Basics", "prismatic", "Your ultimate is disabled; your other abilities deal much more damage."],
-  ["Courage of the Colossus", "gold", "Gain a shield after immobilizing an enemy champion."],
-  ["Tank Engine", "gold", "Takedowns permanently increase your size and health."],
-  ["Mystic Punch", "gold", "Attacks reduce your ability cooldowns."],
-  ["Phantom Step", "gold", "Dashing grants a short burst of move speed."],
-  ["Witchful Thinking", "silver", "Gain ability power."],
-  ["Firebrand", "silver", "Attacks burn enemies over a few seconds."],
-  ["Ice Cold", "silver", "Your slows are stronger."],
-  ["Deft", "silver", "Gain attack speed."],
-];
-
-function mockAugments(championId: number): AugmentOption[] {
-  const r = rng(championId * 4099 + 17);
-  // Like the real data: a ranking only (Riot policy forbids augment win rates).
-  const order = AUGMENTS.map((_, i) => ({ i, key: r() }));
-  const rank = new Map(order.map((o) => [o.i, o.key]));
-  return AUGMENTS.map(([name, rarity, description], i) => ({
-    id: 1000 + i,
-    name,
-    icon: "",
-    rarity,
-    description,
-    games: 0,
-    win_rate: 0,
-    pick_rate: 0,
-  })).sort((a, b) => rank.get(b.id - 1000)! - rank.get(a.id - 1000)!);
-}
+const GAREN = 86;
 
 function yorickBuild(): Omit<Build, "opponent_id" | "games" | "win_rate" | "fell_back_to_general" | "queue" | "role"> {
   return {
@@ -377,21 +351,20 @@ async function genBuild(
   const sd = await staticData();
   const champ = sd.champions.find((c) => c.id === championId);
   const name = champ?.name ?? `Champion ${championId}`;
-  const aram = queue === "aram" || queue === "aram_mayhem";
   const roles = champ?.roles.length ? champ.roles : (["top"] as Role[]);
-  const effRole: Role | null = aram ? null : (role ?? roles[0]);
+  const effRole: Role | null = role ?? roles[0];
   if (effRole && !roles.includes(effRole)) {
     throw `No ${effRole} data for ${name} on this patch (too few games)`;
   }
   const patch = sd.ugg_patch;
-  const r = rng(championId * 97 + (effRole ? ROLE_IDX[effRole] : 9) * 7 + (aram ? 13 : 0));
+  const r = rng(championId * 97 + (effRole ? ROLE_IDX[effRole] : 9) * 7);
 
   // Matchup sample: real numbers for Yorick vs Gwen, generated otherwise.
   const general = { games: Math.round(8000 + r() * 60000), win_rate: 0.485 + r() * 0.045 };
   let stats = general;
   let fell = false;
   let opp: number | null = null;
-  if (opponentId && !aram) {
+  if (opponentId) {
     opp = opponentId;
     if (championId === YORICK && opponentId === GWEN) {
       stats = { games: 602, win_rate: 327 / 602 };
@@ -403,7 +376,7 @@ async function genBuild(
     }
   }
 
-  if (championId === YORICK && !aram) {
+  if (championId === YORICK) {
     const y = yorickBuild();
     const ys = opp && !fell ? stats : { games: 48210, win_rate: 0.516 };
     return {
@@ -457,19 +430,19 @@ async function genBuild(
     opponent_id: opp,
     queue,
     patch,
-    rank: aram ? "overall" : settings.rank,
+    rank: settings.rank,
     region: settings.region,
     games: stats.games,
     win_rate: stats.win_rate,
     fell_back_to_general: fell,
     runes: { primary_style: prim.id, sub_style: sub.id, perks, shards, games: Math.round(stats.games * 0.6), win_rate: base + 0.01 },
     spells: {
-      ids: aram ? [4, 32] : [4, second[effRole ?? "top"]],
+      ids: [4, second[effRole ?? "top"]],
       games: Math.round(stats.games * 0.8),
       win_rate: base + 0.004,
     },
     starting_items: {
-      items: aram ? [1055, 2003, 2003] : starting[effRole ?? "top"],
+      items: starting[effRole ?? "top"],
       games: Math.round(stats.games * 0.5),
       win_rate: base + 0.006,
     },
@@ -479,8 +452,8 @@ async function genBuild(
     sixth_items: opts(r, rest.slice(6, 10), base + 0.05),
     skill_order: skillOrder(priority),
     skill_priority: priority,
-    available_roles: aram ? [] : roles,
-    augments: queue === "aram_mayhem" ? mockAugments(championId) : [],
+    available_roles: roles,
+    augments: [],
   };
 }
 
@@ -623,32 +596,69 @@ function rankedCs(me: number, locked: boolean, oppKnown = true): ChampSelectStat
   };
 }
 
-const ARAM_CS: ChampSelectState = {
-  in_champ_select: true,
-  queue_id: 450,
-  queue: "aram",
-  my_role: null,
-  my_champion_id: 115,
-  my_champion_locked: false,
-  allies: [115, 22, 54, 99, 86].map((id, i) => ({ champion_id: id, role: null, is_me: i === 0 })),
-  enemies: [103, 51, 25, 3, 14].map((id) => ({ champion_id: id, role: null, role_inferred: false })),
+function withQueue(cs: ChampSelectState, queue_id: number, queue: Queue): ChampSelectState {
+  return { ...cs, queue_id, queue };
+}
+
+/** Locked Yorick, then traded with the ally Garen (pick actions unchanged). */
+function tradedCs(): ChampSelectState {
+  const cs = rankedCs(YORICK, true);
+  return {
+    ...cs,
+    my_champion_id: GAREN,
+    allies: cs.allies.map((a) => (a.is_me ? { ...a, champion_id: GAREN } : a.champion_id === 0 ? { ...a, champion_id: YORICK } : a)),
+  };
+}
+
+/** Swiftplay's skip-champ-select step: champions from the lobby, nothing to lock. */
+const SWIFTPLAY_CS: ChampSelectState = {
+  ...rankedCs(YORICK, false),
+  queue_id: 480,
+  queue: "swiftplay",
+  enemies: [NO_PICK, NO_PICK, NO_PICK, NO_PICK, NO_PICK],
   lane_opponent_id: null,
   bans: [],
 };
 
-const MAYHEM_CS: ChampSelectState = {
-  ...ARAM_CS,
-  queue_id: 2400,
-  queue: "aram_mayhem",
-  my_champion_id: YORICK,
-  my_champion_locked: true,
-  allies: [YORICK, 22, 54, 99, 86].map((id, i) => ({ champion_id: id, role: null, is_me: i === 0 })),
-};
+/** Unsupported queue: the Live view says so and imports nothing. */
+function unsupportedCs(queue_id: number): ChampSelectState {
+  return {
+    in_champ_select: true,
+    queue_id,
+    queue: null,
+    my_role: null,
+    my_champion_id: YORICK,
+    my_champion_locked: true,
+    allies: [YORICK, 22, 54, 99, 86].map((id, i) => ({ champion_id: id, role: null, is_me: i === 0 })),
+    enemies: [],
+    lane_opponent_id: null,
+    bans: [],
+  };
+}
 
 const SUMMONER = "DeadManWalking#EUW";
-type MockState = { lcu: LcuStatus; cs: ChampSelectState };
+const NO_LOBBY: LobbyState = { in_lobby: false, queue_id: null, queue: null, slots: [] };
+const swiftLobby = (queue_id: number): LobbyState => ({
+  in_lobby: true,
+  queue_id,
+  queue: "swiftplay",
+  slots: [
+    { index: 0, champion_id: YORICK, role: "top" },
+    { index: 1, champion_id: 103, role: "mid" },
+  ],
+});
+type MockState = { lcu: LcuStatus; cs: ChampSelectState; lobby?: LobbyState };
 const offline: MockState = { lcu: { connected: false, summoner_name: null, phase: "None" }, cs: NOT_IN_CS };
-const lobby: MockState = { lcu: { connected: true, summoner_name: SUMMONER, phase: "Lobby" }, cs: NOT_IN_CS };
+const lobby: MockState = {
+  lcu: { connected: true, summoner_name: SUMMONER, phase: "Lobby" },
+  cs: NOT_IN_CS,
+  lobby: { in_lobby: true, queue_id: 420, queue: "ranked_solo", slots: [] },
+};
+const inLobby = (queue_id: number): MockState => ({
+  lcu: { connected: true, summoner_name: SUMMONER, phase: "Lobby" },
+  cs: NOT_IN_CS,
+  lobby: swiftLobby(queue_id),
+});
 const inCs = (cs: ChampSelectState): MockState => ({
   lcu: { connected: true, summoner_name: SUMMONER, phase: "ChampSelect" },
   cs,
@@ -659,13 +669,19 @@ const STATES: Record<string, MockState> = {
   lobby,
   counters: inCs(rankedCs(0, false)),
   champselect: inCs(rankedCs(YORICK, false)),
+  draft: inCs(withQueue(rankedCs(YORICK, false), 400, "normal_draft")),
+  flex: inCs(withQueue(rankedCs(YORICK, true), 440, "ranked_flex")),
+  trade: inCs(rankedCs(YORICK, true)),
+  swiftplay: inLobby(480),
+  quickplay: inLobby(490),
+  "swiftplay-cs": inCs(SWIFTPLAY_CS),
   locked: inCs(rankedCs(YORICK, true)),
   fullpages: inCs(rankedCs(YORICK, true)),
   late: inCs(rankedCs(YORICK, true, false)),
   blind: inCs(rankedCs(0, false, false)),
-  aram: inCs(ARAM_CS),
-  mayhem: inCs(MAYHEM_CS),
-  ingame: inCs(MAYHEM_CS),
+  aram: inCs(unsupportedCs(450)),
+  mayhem: inCs(unsupportedCs(2400)),
+  ingame: inCs(rankedCs(YORICK, true)),
 };
 const inGame: MockState = { lcu: { connected: true, summoner_name: SUMMONER, phase: "InProgress" }, cs: NOT_IN_CS };
 
@@ -679,7 +695,19 @@ export function createMockBackend(): Backend {
     state = s;
     emit("lcu-status", s.lcu);
     emit("champ-select", s.cs);
+    emit("lobby", s.lobby ?? NO_LOBBY);
   };
+  const imported = (champion_id: number, opponent_id: number | null, page: string) =>
+    emit("auto-imported", {
+      champion_id,
+      opponent_id,
+      result: {
+        runes: true,
+        item_set: true,
+        messages: [`Runes: set page "${page}".`, `Item set: saved "${page}".`],
+        needs_confirmation: null,
+      },
+    });
   const fullPages = mode === "fullpages";
   const FULL_PAGE = { id: 1987, name: "Ranked Top" };
   const autoImport = (opponent: number | null = GWEN) =>
@@ -698,7 +726,14 @@ export function createMockBackend(): Backend {
     });
 
   if (mode === "locked" || fullPages) setTimeout(autoImport, 1500);
-  if (mode === "ingame") setTimeout(() => setState(inGame), 1000);
+  if (mode === "ingame") {
+    setTimeout(() => imported(YORICK, GWEN, "CSH: Yorick vs Gwen"), 600);
+    setTimeout(() => setState(inGame), 1000);
+  }
+  if (mode === "trade") {
+    setTimeout(() => imported(YORICK, GWEN, "CSH: Yorick vs Gwen"), 600);
+    setTimeout(() => setState(inCs(tradedCs())), 2500);
+  }
   if (mode === "late") {
     setTimeout(() => autoImport(null), 1200);
     setTimeout(() => setState(STATES.locked), 4000);
@@ -756,6 +791,9 @@ export function createMockBackend(): Backend {
     },
     async get_lcu_status() {
       return state.lcu;
+    },
+    async get_lobby() {
+      return state.lobby ?? NO_LOBBY;
     },
     async import_build(a): Promise<ImportResult> {
       await sleep(600);

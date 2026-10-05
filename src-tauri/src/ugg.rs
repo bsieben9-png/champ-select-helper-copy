@@ -1066,15 +1066,12 @@ impl Ugg {
         Ok((patch, (*roles).clone()))
     }
 
-    /// Recommended build. `role: None` → the champion's most played role
-    /// (ignored for ARAM). `opponent_id` → matchup-specific build, falling
-    /// back to the general build when the matchup has too little data.
+    /// Recommended build. `role: None` → the champion's most played role.
+    /// `opponent_id` → matchup-specific build, falling back to the general
+    /// build when the matchup has too little data.
     ///
     /// A requested role with no data at all falls back to the most played
     /// role (`Build.role` says which role the build is for).
-    ///
-    /// ARAM Mayhem: the normal ARAM build (as on u.gg's Mayhem page) plus
-    /// `augments`; augments are best effort (a failure only leaves them empty).
     pub async fn build(
         &self,
         champion_id: u32,
@@ -1089,22 +1086,6 @@ impl Ugg {
             .overview(champion_id, ugg_queue)
             .await?
             .ok_or_else(|| anyhow!("u.gg has no {ugg_queue} data for champion {champion_id}"))?;
-
-        if queue.is_aram() {
-            // ARAM files only have rank "overall" and role 6.
-            let levels = levels(region, OVERALL);
-            let (level, e) = pick_general(&general, &levels, ARAM_ROLE)
-                .ok_or_else(|| anyhow!("u.gg has no ARAM data for champion {champion_id}"))?;
-            let mut build =
-                make_build(champion_id, None, None, queue, &patch, level, e, Vec::new());
-            if queue == Queue::AramMayhem {
-                match self.mayhem_augments(champion_id).await {
-                    Ok(augments) => build.augments = augments,
-                    Err(e) => eprintln!("ugg: Mayhem augments for {champion_id}: {e:#}"),
-                }
-            }
-            return Ok(build);
-        }
 
         let levels = levels(region, rank_id(&settings.rank));
         let available: Vec<Role> = available_roles(&general, &levels)
@@ -1168,9 +1149,6 @@ impl Ugg {
         queue: Queue,
         settings: &Settings,
     ) -> anyhow::Result<Vec<MatchupStat>> {
-        if queue.is_aram() {
-            return Ok(Vec::new());
-        }
         let Some(file) = self.matchups_file(champion_id, queue.ugg_queue()).await? else {
             return Ok(Vec::new());
         };
@@ -1188,9 +1166,6 @@ impl Ugg {
         queue: Queue,
         settings: &Settings,
     ) -> anyhow::Result<Vec<Counter>> {
-        if queue.is_aram() {
-            return Ok(Vec::new());
-        }
         let Some(file) = self.matchups_file(enemy_id, queue.ugg_queue()).await? else {
             return Ok(Vec::new());
         };
@@ -1207,7 +1182,6 @@ impl Ugg {
     }
 
     /// Tier list for `role` (best win rate first), e.g. for blind/first pick.
-    /// ARAM has no roles: `role` is ignored and the ARAM list is returned.
     /// Region/rank widen like everywhere else when a file is missing/empty.
     pub async fn tier_list(
         &self,
@@ -1219,11 +1193,8 @@ impl Ugg {
             return Ok(Vec::new());
         }
         let ugg_queue = queue.ugg_queue();
-        let (role, rank) = if queue.is_aram() {
-            (None, OVERALL)
-        } else {
-            (Some(role), rank_id(&settings.rank))
-        };
+        let rank = rank_id(&settings.rank);
+        let role = Some(role);
         let levels = levels(region_id(&settings.region), rank);
         let versions = self.versions().await?;
         for patch in versions.patches.iter().take(PATCHES_TO_TRY) {
@@ -1664,45 +1635,6 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    #[tokio::test]
-    async fn build_aram_offline() {
-        let (ugg, dir) = seeded_ugg("ugg-aram");
-        let s = Settings {
-            rank: "challenger".into(),
-            ..Settings::auto_on()
-        };
-        let b = ugg
-            .build(YORICK, Some(Role::Top), Some(GWEN), Queue::AramMayhem, &s)
-            .await
-            .unwrap();
-        assert_eq!((b.role, b.opponent_id), (None, None));
-        assert_eq!((b.rank.as_str(), b.region.as_str()), ("overall", "world"));
-        assert!(b.games > 0);
-        assert_eq!(b.spells.ids, [4, 32]);
-        assert!(b.available_roles.is_empty());
-        // Mayhem: same build as normal ARAM, plus augments.
-        assert_eq!(b.augments.len(), 3 * AUGMENTS_PER_RARITY);
-        assert_eq!(b.augments[0].id, 1361);
-        assert_eq!(b.augments[0].name, "Icathia's Fall");
-        assert_eq!(
-            b.augments[0].icon,
-            "https://static.bigbrain.gg/cdragon-custom/16_19/augments/1361.webp"
-        );
-
-        let aram = ugg
-            .build(YORICK, None, None, Queue::Aram, &s)
-            .await
-            .unwrap();
-        assert!(aram.augments.is_empty());
-        assert_eq!((aram.games, &aram.runes), (b.games, &b.runes));
-
-        // Builds serialized before `augments` existed still deserialize.
-        let mut v = serde_json::to_value(&aram).unwrap();
-        v.as_object_mut().unwrap().remove("augments");
-        assert_eq!(serde_json::from_value::<Build>(v).unwrap(), aram);
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
     #[test]
     fn augment_files_parse() {
         let r = parse_augment_ranking(&fixture("mayhem/tierlist-augments-83-16_19.json")).unwrap();
@@ -1768,37 +1700,6 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn mayhem_augments_previous_patch_and_missing() {
-        let (ugg, dir) = seeded_ugg("ugg-mayhem");
-        let s = Settings::auto_on();
-        // Ranking only on 16_18 (patch day) → used, icons point at 16_18;
-        // names still come from the newest manifest.
-        std::fs::rename(
-            ugg.http.path_for(&augment_ranking_url("16_19", YORICK)),
-            ugg.http.path_for(&augment_ranking_url("16_18", YORICK)),
-        )
-        .unwrap();
-        let b = ugg
-            .build(YORICK, None, None, Queue::AramMayhem, &s)
-            .await
-            .unwrap();
-        assert_eq!(b.augments[0].name, "Icathia's Fall");
-        assert!(b.augments[0].icon.contains("/16_18/"));
-        assert_eq!(b.patch, "16_19");
-
-        // No ranking at all → build without augments, not an error.
-        let (ugg, dir2) = seeded_ugg("ugg-mayhem-none");
-        std::fs::remove_file(ugg.http.path_for(&augment_ranking_url("16_19", YORICK))).unwrap();
-        let b = ugg
-            .build(YORICK, None, None, Queue::AramMayhem, &s)
-            .await
-            .unwrap();
-        assert!(b.augments.is_empty() && b.games > 0);
-        let _ = std::fs::remove_dir_all(dir);
-        let _ = std::fs::remove_dir_all(dir2);
-    }
-
-    #[tokio::test]
     async fn previous_patch_used_when_latest_missing() {
         let (ugg, dir) = seeded_ugg("ugg-patch");
         // Move Yorick's overview to 16_18 only.
@@ -1827,11 +1728,6 @@ pub(crate) mod tests {
             .unwrap();
         let gwen = m.iter().find(|m| m.opponent_id == GWEN).unwrap();
         assert_eq!((gwen.wins, gwen.games), (327, 602));
-        assert!(ugg
-            .matchups(YORICK, Role::Top, Queue::Aram, &s)
-            .await
-            .unwrap()
-            .is_empty());
         // No file for this champion → empty, not an error.
         assert!(ugg
             .matchups(1, Role::Top, Queue::RankedSolo, &s)
@@ -1945,12 +1841,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(list, list_kr);
-        // No ARAM file seeded → empty, not an error.
-        assert!(ugg
-            .tier_list(Role::Top, Queue::Aram, &s)
-            .await
-            .unwrap()
-            .is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1994,11 +1884,6 @@ pub(crate) mod tests {
         assert!(!c.is_empty());
         let roles = ugg.primary_roles().await.unwrap();
         assert_eq!(roles[&YORICK][0], Role::Top);
-        let aram = ugg
-            .build(YORICK, None, None, Queue::Aram, &s)
-            .await
-            .unwrap();
-        assert!(aram.games > 0 && aram.role.is_none());
         let tiers = ugg
             .tier_list(Role::Top, Queue::RankedSolo, &s)
             .await
@@ -2011,8 +1896,6 @@ pub(crate) mod tests {
             tiers[0].pick_rate * 100.0,
             tiers[0].ban_rate * 100.0
         );
-        let aram_tiers = ugg.tier_list(Role::Top, Queue::Aram, &s).await.unwrap();
-        assert!(aram_tiers.len() > 100);
 
         // Second call is served from memory/disk.
         let again = ugg
@@ -2020,43 +1903,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(again, b);
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    /// Live check of the ARAM Mayhem files: `cargo test -- --ignored`.
-    #[tokio::test]
-    #[ignore]
-    async fn live_yorick_mayhem_augments() {
-        let dir = temp_dir("ugg-live-mayhem");
-        let ugg = Ugg::new(dir.clone());
-        let b = ugg
-            .build(YORICK, None, None, Queue::AramMayhem, &Settings::auto_on())
-            .await
-            .unwrap();
-        println!(
-            "Yorick Mayhem ({}): {} games, {} augments, top: {:?}",
-            b.patch,
-            b.games,
-            b.augments.len(),
-            b.augments
-                .iter()
-                .take(3)
-                .map(|a| &a.name)
-                .collect::<Vec<_>>()
-        );
-        assert!(b.games > 0 && b.runes.perks.len() == 6);
-        assert!(b.augments.len() >= 10);
-        for rarity in ["prismatic", "gold", "silver"] {
-            assert!(b.augments.iter().any(|a| a.rarity == rarity), "{rarity}");
-        }
-        assert!(b.augments.iter().all(|a| !a.name.is_empty()));
-        let icon = &b.augments[0].icon;
-        let client = reqwest::Client::builder()
-            .user_agent(crate::http_cache::USER_AGENT)
-            .build()
-            .unwrap();
-        let resp = client.get(icon).send().await.unwrap();
-        assert!(resp.status().is_success(), "{icon}: {}", resp.status());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

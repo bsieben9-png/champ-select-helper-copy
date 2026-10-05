@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 use super::fake_lcu::*;
 use crate::http_cache::cache_file_name;
 use crate::http_cache::test_util::{fixture, temp_dir};
+use crate::lobby::{LobbyStore, LobbyWatcher};
 use crate::model::*;
 use crate::watcher::Watcher;
 use crate::{ddragon, ugg, AppState};
@@ -48,11 +49,29 @@ fn offline_sources(name: &str) -> (ugg::Ugg, ddragon::DDragon, PathBuf) {
     std::fs::create_dir_all(&d).unwrap();
     let p = "16_19";
     seed(&u, UGG_VERSIONS, "ugg-api-versions.json");
-    seed(
-        &u,
-        &format!("{UGG}/overview/{p}/ranked_solo_5x5/83/1.5.0.json"),
-        "overview_83_ranked_solo_5x5.json",
-    );
+    // Ranked flex has the same file layout as ranked solo: reuse the fixtures.
+    for q in ["ranked_solo_5x5", "ranked_flex_sr"] {
+        seed(
+            &u,
+            &format!("{UGG}/overview/{p}/{q}/83/1.5.0.json"),
+            "overview_83_ranked_solo_5x5.json",
+        );
+        seed(
+            &u,
+            &format!("{UGG}/overview/{p}/{q}/matchups/83_887/1.5.0.json"),
+            "overview_matchup_83_887_ranked_solo_5x5.json",
+        );
+        seed(
+            &u,
+            &format!("{UGG}/matchups/{p}/{q}/83/1.5.0.json"),
+            "matchups_83_ranked_solo_5x5.json",
+        );
+        seed(
+            &u,
+            &format!("{UGG}/champion_ranking/world/{p}/{q}/emerald_plus/1.5.0.json"),
+            "champion_ranking_world_emerald_plus.json",
+        );
+    }
     for champ in [YORICK, ASHE] {
         seed(
             &u,
@@ -62,23 +81,8 @@ fn offline_sources(name: &str) -> (ugg::Ugg, ddragon::DDragon, PathBuf) {
     }
     seed(
         &u,
-        &format!("{UGG}/overview/{p}/ranked_solo_5x5/matchups/83_887/1.5.0.json"),
-        "overview_matchup_83_887_ranked_solo_5x5.json",
-    );
-    seed(
-        &u,
-        &format!("{UGG}/matchups/{p}/ranked_solo_5x5/83/1.5.0.json"),
-        "matchups_83_ranked_solo_5x5.json",
-    );
-    seed(
-        &u,
         &format!("{UGG}/primary_roles/{p}/1.5.0.json"),
         "primary_roles.json",
-    );
-    seed(
-        &u,
-        &format!("{UGG}/champion_ranking/world/{p}/ranked_solo_5x5/emerald_plus/1.5.0.json"),
-        "champion_ranking_world_emerald_plus.json",
     );
     seed(
         &d,
@@ -105,6 +109,7 @@ fn offline_sources(name: &str) -> (ugg::Ugg, ddragon::DDragon, PathBuf) {
 struct Harness {
     app: tauri::App<MockRuntime>,
     watcher: Watcher,
+    lobby: LobbyWatcher,
     fake: FakeLcu,
     events: Arc<Mutex<Vec<(&'static str, Value)>>>,
     dir: PathBuf,
@@ -137,12 +142,14 @@ impl Harness {
                 crate::get_champ_select,
                 crate::get_lcu_status,
                 crate::import_build,
+                crate::get_lobby,
             ])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         app.manage(state);
+        app.manage(LobbyStore::default());
         let events = Arc::new(Mutex::new(Vec::new()));
-        for event in ["lcu-status", "champ-select", "auto-imported"] {
+        for event in ["lcu-status", "champ-select", "auto-imported", "lobby"] {
             let events = events.clone();
             app.listen_any(event, move |e| {
                 let payload = serde_json::from_str(e.payload()).unwrap();
@@ -152,6 +159,7 @@ impl Harness {
         Harness {
             app,
             watcher: Watcher::new(dir.join("last_import.json")),
+            lobby: LobbyWatcher::default(),
             fake,
             events,
             dir,
@@ -175,7 +183,7 @@ impl Harness {
         self.watcher = Watcher::new(self.marker());
     }
 
-    /// One poll of the background loop, plus the background work it started
+    /// One poll of the background loops, plus the background work it started
     /// (u.gg answering, the import) — in the app that's well under a second.
     async fn tick(&mut self) -> Duration {
         let delay = self.poll().await;
@@ -183,11 +191,17 @@ impl Harness {
         delay
     }
 
-    /// Only the poll itself: it must never wait for u.gg.
+    /// Only the polls themselves (champ select watcher, then the lobby loop,
+    /// which reads the phase the first one stored): never wait for u.gg.
     async fn poll(&mut self) -> Duration {
-        tokio::time::timeout(Duration::from_secs(5), self.watcher.tick(self.app.handle()))
+        let delay =
+            tokio::time::timeout(Duration::from_secs(5), self.watcher.tick(self.app.handle()))
+                .await
+                .expect("the poll waited for something slow (u.gg?)");
+        tokio::time::timeout(Duration::from_secs(5), self.lobby.tick(self.app.handle()))
             .await
-            .expect("the poll waited for something slow (u.gg?)")
+            .expect("the lobby poll hung");
+        delay
     }
 
     /// Wait for the background work (roles, the import) to finish.
@@ -209,6 +223,19 @@ impl Harness {
         st.phase = phase.into();
         st.queue_id = draft.map(|d| d.queue_id);
         st.session = draft.map(Draft::session);
+    }
+
+    /// Set the client's gameflow phase and lobby (no champ select session).
+    fn client_shows_lobby(&self, phase: &str, queue_id: i64, lobby: Option<Value>) {
+        let mut st = self.fake.state();
+        st.phase = phase.into();
+        st.queue_id = Some(queue_id);
+        st.session = None;
+        st.lobby = lobby;
+    }
+
+    async fn lobby_state(&self) -> LobbyState {
+        self.app.state::<LobbyStore>().lobby.read().await.clone()
     }
 
     fn events(&self, name: &str) -> Vec<Value> {
@@ -277,6 +304,13 @@ fn assert_never_touched_spells_or_defaults(fake: &FakeState) {
             !r.path.contains("my-selection")
                 && !(r.is_write() && r.path.starts_with("/lol-champ-select")),
             "the app must never change champ select / summoner spells: {} {}",
+            r.method,
+            r.path
+        );
+        assert!(
+            !(r.is_write()
+                && (r.path.starts_with("/lol-lobby") || r.path.starts_with("/lol-matchmaking"))),
+            "the app must never change the lobby / player slots / queue: {} {}",
             r.method,
             r.path
         );
@@ -826,40 +860,6 @@ async fn dodge_and_new_champ_select_imports_again_once() {
 }
 
 #[tokio::test]
-async fn aram_imports_once_per_champion() {
-    for queue_id in [450, 2400, 2450] {
-        let mut h = Harness::new("e2e-aram", Settings::auto_on(), |_| {}).await;
-        let draft = Draft::aram(queue_id, YORICK, vec![ASHE, 99]);
-        h.client_shows("ChampSelect", Some(&draft));
-        h.ticks(3).await;
-        let imports = h.auto_imports();
-        assert_eq!(imports.len(), 1, "queue {queue_id}");
-        assert!(imports[0].result.runes && imports[0].result.item_set);
-        {
-            let st = h.fake.state();
-            assert_eq!(st.our_pages()[0]["name"], json!("CSH: Yorick ARAM"));
-            let ours: Vec<_> = st
-                .item_sets()
-                .into_iter()
-                .filter(is_ours_for_yorick)
-                .collect();
-            assert_eq!(ours[0]["associatedMaps"], json!([12]), "Howling Abyss");
-        }
-
-        // Bench swap → a new champion → imported once.
-        h.client_shows("ChampSelect", Some(&draft.swap_to(ASHE)));
-        h.ticks(3).await;
-        let imports = h.auto_imports();
-        assert_eq!(imports.len(), 2, "queue {queue_id}");
-        assert_eq!(imports[1].champion_id, ASHE);
-        let st = h.fake.state();
-        assert_eq!(st.count("POST", "/lol-perks/v1/pages"), 2);
-        assert_eq!(st.our_pages().len(), 1);
-        assert_never_touched_spells_or_defaults(&st);
-    }
-}
-
-#[tokio::test]
 async fn client_disappearing_mid_select_disconnects_cleanly() {
     let mut h = Harness::new("e2e-gone", Settings::auto_on(), |_| {}).await;
     h.client_shows(
@@ -1185,27 +1185,6 @@ async fn old_build_never_lands_in_a_new_champ_select_seen_directly() {
     assert_eq!(h.fake.state().count("POST", "/lol-perks/v1/pages"), 1);
 }
 
-/// ARAM: a bench swap while the build is loading → only the new champion is
-/// imported (the old one never writes).
-#[tokio::test]
-async fn aram_swap_while_the_build_loads_imports_only_the_new_champion() {
-    let mut h = in_lobby("e2e-aram-swap").await;
-    h.ugg().set_stalled(BUILD_FILES, true);
-    let draft = Draft::aram(450, YORICK, vec![ASHE]);
-    h.client_shows("ChampSelect", Some(&draft));
-    h.poll().await;
-    h.client_shows("ChampSelect", Some(&draft.swap_to(ASHE)));
-    h.poll().await;
-    h.ugg().set_stalled(BUILD_FILES, false);
-    h.settle().await;
-    assert!(h.writes().is_empty(), "{:?}", h.writes());
-    h.ticks(3).await;
-    let imports = h.auto_imports();
-    assert_eq!(imports.len(), 1, "{imports:?}");
-    assert_eq!(imports[0].champion_id, ASHE);
-    assert_eq!(h.fake.state().count("POST", "/lol-perks/v1/pages"), 1);
-}
-
 /// Draft: a trade before the (slow) build arrived. Nothing is written for
 /// the champion that was traded away, and a trade never starts an import.
 #[tokio::test]
@@ -1380,6 +1359,285 @@ async fn app_restart_after_lock_in_with_auto_import_off_does_not_import() {
 }
 
 // ---------------------------------------------------------------------------
+// Per mode, start to finish: Ranked Solo/Duo, Ranked Flex, Normal Draft,
+// Swiftplay / Quickplay. ARAM and ARAM Mayhem are covered as unsupported.
+// ---------------------------------------------------------------------------
+
+const DARIUS: u32 = 122;
+
+/// Lobby → queue → planning (intent) → my ban → enemy picks → hover → lock-in
+/// → more enemy picks → trades → game, for every draft queue: exactly ONE
+/// auto-import (rune page + item set for Summoner's Rift), at lock-in, with the
+/// lane opponent known then; nothing before, nothing after.
+#[tokio::test]
+async fn draft_queues_import_once_at_lock_in_start_to_finish() {
+    for (queue_id, queue) in [
+        (420, Queue::RankedSolo),
+        (440, Queue::RankedFlex),
+        (400, Queue::NormalDraft),
+    ] {
+        let mut h = Harness::new("e2e-draft-queues", Settings::auto_on(), |_| {}).await;
+        h.client_shows_lobby("Lobby", queue_id, Some(plain_lobby(queue_id)));
+        h.tick().await;
+        let lobby = h.lobby_state().await;
+        assert!(lobby.in_lobby, "{queue_id}");
+        assert_eq!(lobby.queue, Some(queue));
+        assert!(lobby.slots.is_empty(), "positions, not slots: {lobby:?}");
+        for phase in ["Matchmaking", "ReadyCheck"] {
+            h.client_shows_lobby(phase, queue_id, Some(plain_lobby(queue_id)));
+            h.tick().await;
+        }
+
+        // Planning: I declare Yorick.
+        let draft = Draft::with_queue(queue_id).intent(YORICK);
+        h.client_shows("ChampSelect", Some(&draft));
+        h.ticks(2).await;
+        assert!(
+            !h.lobby_state().await.in_lobby,
+            "lobby hidden in champ select"
+        );
+        let cs = h.champ_select().await;
+        assert_eq!(cs.queue, Some(queue));
+        assert_eq!(cs.my_role, Some(Role::Top));
+        assert_eq!(cs.my_champion_id, Some(YORICK));
+        assert!(!cs.my_champion_locked);
+
+        // My ban turn: hovering Darius is not "my champion".
+        let draft = draft.banning(DARIUS);
+        h.client_shows("ChampSelect", Some(&draft));
+        h.ticks(2).await;
+        let cs = h.champ_select().await;
+        assert_eq!(
+            cs.my_champion_id,
+            Some(YORICK),
+            "ban hover taken as my pick"
+        );
+        assert!(!cs.my_champion_locked);
+        let draft = draft.bans_done(DARIUS);
+        h.client_shows("ChampSelect", Some(&draft));
+        h.tick().await;
+        assert!(h.champ_select().await.bans.contains(&DARIUS));
+
+        // Red side picks Gwen + Lee Sin first, then my turn: hovering Yorick.
+        let draft = draft.enemy_locks(0, GWEN).enemy_locks(1, LEE_SIN);
+        h.client_shows("ChampSelect", Some(&draft));
+        h.ticks(2).await;
+        let cs = h.champ_select().await;
+        assert_eq!(cs.lane_opponent_id, Some(GWEN), "Gwen inferred top");
+        let draft = draft.ally_locks(0, 64).hover(YORICK);
+        h.client_shows("ChampSelect", Some(&draft));
+        h.ticks(3).await;
+        assert!(h.writes().is_empty(), "{queue_id}: {:?}", h.writes());
+        assert!(h.auto_imports().is_empty());
+
+        // Lock in → one import, the Yorick vs Gwen build.
+        let draft = draft.lock();
+        h.client_shows("ChampSelect", Some(&draft));
+        h.tick().await;
+        assert_eq!(
+            h.writes(),
+            vec![
+                format!("DELETE /lol-perks/v1/pages/{PAGE_OLD_CSH}"),
+                "POST /lol-perks/v1/pages".to_string(),
+                format!("PUT /lol-item-sets/v1/item-sets/{SUMMONER_ID}/sets"),
+            ],
+            "{queue_id}"
+        );
+        let imports = h.auto_imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(
+            (imports[0].champion_id, imports[0].opponent_id),
+            (YORICK, Some(GWEN))
+        );
+        assert!(imports[0].result.runes && imports[0].result.item_set);
+        {
+            let st = h.fake.state();
+            assert_eq!(st.our_pages()[0]["name"], json!("CSH: Yorick vs Gwen"));
+            let ours: Vec<_> = st
+                .item_sets()
+                .into_iter()
+                .filter(is_ours_for_yorick)
+                .collect();
+            assert_eq!(ours.len(), 1);
+            assert_eq!(ours[0]["associatedMaps"], json!([11]), "Summoner's Rift");
+        }
+
+        // The rest of the draft, trades, game start: nothing more.
+        let draft = draft
+            .enemy_locks(2, 103)
+            .enemy_locks(3, JINX)
+            .enemy_locks(4, 412)
+            .ally_locks(1, 99)
+            .ally_locks(3, 51)
+            .ally_locks(4, 89);
+        h.client_shows("ChampSelect", Some(&draft));
+        h.ticks(3).await;
+        let draft = draft.finalization();
+        h.client_shows("ChampSelect", Some(&draft));
+        h.ticks(2).await;
+        h.client_shows("ChampSelect", Some(&draft.clone().traded_to(99)));
+        h.ticks(2).await;
+        assert_eq!(h.champ_select().await.my_champion_id, Some(99));
+        h.client_shows("ChampSelect", Some(&draft.traded_to(99).game_starting()));
+        h.ticks(2).await;
+        for phase in ["GameStart", "InProgress"] {
+            h.client_shows(phase, None);
+            h.ticks(2).await;
+        }
+        assert_eq!(h.writes().len(), 3, "{queue_id}: {:?}", h.writes());
+        assert_eq!(h.auto_imports().len(), 1);
+        assert_never_touched_spells_or_defaults(&h.fake.state());
+    }
+}
+
+/// Before I pick: counters vs the lane opponent and the tier list for my role
+/// work for every SR queue (the Live view's two "before pick" panels).
+#[tokio::test]
+async fn counters_and_tier_list_for_every_summoners_rift_queue() {
+    let h = Harness::new("e2e-counters-tiers", Settings::default(), |_| {}).await;
+    for queue in [
+        Queue::RankedSolo,
+        Queue::RankedFlex,
+        Queue::NormalDraft,
+        Queue::Swiftplay,
+    ] {
+        let counters = crate::get_counters(h.state(), YORICK, Role::Top, queue)
+            .await
+            .unwrap();
+        assert!(!counters.is_empty(), "{queue:?}: no counters");
+        assert!(counters.windows(2).all(|w| w[0].win_rate >= w[1].win_rate));
+        let tiers = crate::get_tier_list(h.state(), Role::Top, queue)
+            .await
+            .unwrap();
+        assert!(!tiers.is_empty(), "{queue:?}: no tier list");
+    }
+}
+
+/// Swiftplay (480) and the old Quickplay (490): champions are picked per
+/// position in the lobby. The app shows my slots (read only), never writes to
+/// the lobby and never auto-imports there or in the short skip-champ-select
+/// step (even with auto-import on). Import by hand makes a `CSH:` rune page
+/// + item set.
+#[tokio::test]
+async fn swiftplay_and_quickplay_show_lobby_slots_and_never_write_the_lobby() {
+    for queue_id in [480, 490] {
+        let mut h = Harness::new("e2e-swiftplay", Settings::auto_on(), |_| {}).await;
+        let lobby = swiftplay_lobby(queue_id, &[(YORICK as i64, "TOP"), (-1, "FILL")]);
+        h.client_shows_lobby("Lobby", queue_id, Some(lobby));
+        h.tick().await;
+        let state = h.lobby_state().await;
+        assert_eq!(state.queue, Some(Queue::Swiftplay), "{queue_id}");
+        assert_eq!(
+            state.slots,
+            vec![
+                LobbySlot {
+                    index: 0,
+                    champion_id: Some(YORICK),
+                    role: Some(Role::Top)
+                },
+                LobbySlot {
+                    index: 1,
+                    champion_id: None,
+                    role: None
+                },
+            ]
+        );
+        assert_eq!(h.events("lobby").len(), 1);
+
+        // I pick Gwen for the second slot, then swap the slots: shown, nothing written.
+        h.fake.state().user_picks_in_slot(1, GWEN as i64);
+        h.ticks(3).await;
+        assert_eq!(h.lobby_state().await.slots[1].champion_id, Some(GWEN));
+        h.fake.state().user_swaps_slots();
+        h.ticks(3).await;
+        let slots = h.lobby_state().await.slots;
+        assert_eq!(
+            slots.iter().map(|s| s.champion_id).collect::<Vec<_>>(),
+            vec![Some(GWEN), Some(YORICK)]
+        );
+        assert!(h.writes().is_empty(), "{queue_id}: {:?}", h.writes());
+        assert!(h.auto_imports().is_empty(), "no auto-import in the lobby");
+
+        // Import by hand (the Live view's button for the Yorick slot).
+        let result = h
+            .manual_import(Some(Role::Top), None, Queue::Swiftplay, None)
+            .await;
+        assert!(result.runes && result.item_set, "{result:?}");
+        assert_eq!(
+            h.writes(),
+            vec![
+                format!("DELETE /lol-perks/v1/pages/{PAGE_OLD_CSH}"),
+                "POST /lol-perks/v1/pages".to_string(),
+                format!("PUT /lol-item-sets/v1/item-sets/{SUMMONER_ID}/sets"),
+            ]
+        );
+        assert_eq!(
+            h.fake.state().our_pages()[0]["name"],
+            json!("CSH: Yorick Top")
+        );
+
+        // Queue, then the short skip-champ-select step, then the game.
+        for phase in ["Matchmaking", "ReadyCheck"] {
+            let lobby = h.fake.state().lobby.clone();
+            h.client_shows_lobby(phase, queue_id, lobby);
+            h.tick().await;
+            assert!(
+                h.lobby_state().await.in_lobby,
+                "slots still shown in {phase}"
+            );
+        }
+        h.client_shows(
+            "ChampSelect",
+            Some(&Draft::swiftplay(queue_id, YORICK, "top")),
+        );
+        h.ticks(4).await;
+        let cs = h.champ_select().await;
+        assert!(cs.in_champ_select);
+        assert_eq!(cs.queue, Some(Queue::Swiftplay));
+        assert_eq!(
+            (cs.my_champion_id, cs.my_role),
+            (Some(YORICK), Some(Role::Top))
+        );
+        assert!(!cs.my_champion_locked, "nothing to lock in Swiftplay");
+        assert!(!h.lobby_state().await.in_lobby);
+        for phase in ["GameStart", "InProgress"] {
+            h.client_shows(phase, None);
+            h.ticks(2).await;
+        }
+        // Back in the lobby after the game: still nothing written by itself.
+        let lobby = h.fake.state().lobby.clone();
+        h.client_shows_lobby("Lobby", queue_id, lobby);
+        h.ticks(2).await;
+        assert!(h.lobby_state().await.in_lobby);
+        assert_eq!(h.writes().len(), 3, "{queue_id}: {:?}", h.writes());
+        assert!(h.auto_imports().is_empty(), "{:?}", h.auto_imports());
+        assert_never_touched_spells_or_defaults(&h.fake.state());
+    }
+}
+
+/// ARAM (450) and ARAM Mayhem (2400, 2450) are unsupported. The session is
+/// still champ select, and nothing is imported or written.
+#[tokio::test]
+async fn aram_and_mayhem_are_not_imported() {
+    for queue_id in [450, 2400, 2450] {
+        let mut h = Harness::new("e2e-aram-off", Settings::auto_on(), |_| {}).await;
+        h.client_shows_lobby("Lobby", queue_id, Some(plain_lobby(queue_id)));
+        h.tick().await;
+        assert_eq!(h.lobby_state().await.queue, None, "{queue_id}");
+
+        let draft = Draft::aram(queue_id, YORICK, vec![99, 201]);
+        h.client_shows("ChampSelect", Some(&draft));
+        h.ticks(5).await;
+        let cs = h.champ_select().await;
+        assert!(cs.in_champ_select, "{queue_id}");
+        assert_eq!(cs.queue, None, "{queue_id}");
+        assert!(h.auto_imports().is_empty(), "{queue_id}");
+        assert!(h.writes().is_empty(), "{queue_id}: {:?}", h.writes());
+        assert_never_touched_spells_or_defaults(&h.fake.state());
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The UI's invoke() calls, through Tauri's IPC layer
 // ---------------------------------------------------------------------------
 
@@ -1433,10 +1691,10 @@ async fn ui_invoke_calls_reach_the_commands() {
     assert_eq!(build["fell_back_to_general"], json!(false));
     let general = invoke(
         "get_build",
-        json!({"championId": YORICK, "role": null, "opponentId": null, "queue": "aram_mayhem"}),
+        json!({"championId": YORICK, "role": null, "opponentId": null, "queue": "normal_draft"}),
     )
     .unwrap();
-    assert_eq!(general["queue"], json!("aram_mayhem"));
+    assert_eq!(general["queue"], json!("normal_draft"));
 
     // getCounters(enemyId, role, queue) / getMatchups / getTierList
     let counters = invoke(
@@ -1503,6 +1761,10 @@ async fn ui_invoke_calls_reach_the_commands() {
     assert_eq!(cs["in_champ_select"], json!(false));
     let status = invoke("get_lcu_status", json!({})).unwrap();
     assert_eq!(status["connected"], json!(false));
+    // getLobby
+    let lobby = invoke("get_lobby", json!({})).unwrap();
+    assert_eq!(lobby["in_lobby"], json!(false));
+    assert_eq!(lobby["slots"], json!([]));
 
     // Bad arguments are an error, not a panic.
     assert!(invoke(

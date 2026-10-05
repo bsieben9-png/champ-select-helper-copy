@@ -52,7 +52,7 @@ has drawn publicly, and does strictly less than the big approved apps.
 |---|---|
 | "Exposing information that's intentionally obfuscated" | Never reads or shows other players' names, Riot IDs, PUUIDs, summoner ids, ranks or match history. Ranked champ select hides teammates' names; the app doesn't try to recover them. It shows only what the champ select screen shows you: your own pick and role, allies' picks/hovers, **locked** enemy champions, bans. Enemy *roles* are a guess from champion statistics (which lane each champion is usually played in), not from any hidden data; the UI marks them as guesses. Your own name (connection pill) comes from `/lol-summoner/v1/current-summoner` (you). |
 | "Taking actions on your behalf (botting or scripting)" | No queue accept, pick, ban, lock-in, dodge, chat, or spell change, ever. It writes only a rune page + an item set, by default **only when you press Import**. Opt-in Auto-import (off by default, f2a195d) makes one attempt when you lock in, never retried (6e411c7). See the auto-import note above. |
-| "Drawing conclusions for you during gameplay (ie we want to see you play the game first, then analyze and reflect later!)" | Nothing runs during the game except a cheap "which screen is the client on?" check to the client (not to the game), every 5 s. The app reads no live game data at all (no Live Client Data API, port 2999, no memory, no screen) and shows nothing new during the game. ARAM / ARAM Mayhem support (and with it the augment list) is being removed by owner decision (code kept on branch `saved/aram-mayhem`); supported modes are Ranked and Normals. |
+| "Drawing conclusions for you during gameplay (ie we want to see you play the game first, then analyze and reflect later!)" | Nothing runs during the game except a cheap "which screen is the client on?" check to the client (not to the game), every 5 s. The app reads no live game data at all (no Live Client Data API, port 2999, no memory, no screen) and shows nothing new during the game. ARAM / ARAM Mayhem support is removed (code kept on branch `saved/aram-mayhem`). Supported modes are Ranked and Normals, including Swiftplay and Quickplay. |
 | "Altering your field of intelligence (zoomhacks or global ult alerts)" | Nothing of the kind: no overlay, no timers, no cooldown tracking, no in-game alerts. |
 | Skin hacks / unauthorized services | None. |
 
@@ -87,13 +87,10 @@ has drawn publicly, and does strictly less than the big approved apps.
 - "Products cannot identify or analyze players who are deliberately hidden by the game."
   The app reads no player identities.
 - "Products cannot display win rates for Augments or Arena Mode items. This applies to all
-  websites, applications and overlays." Once ARAM / ARAM
-  Mayhem support is removed (owner decision, in progress; code kept on branch
-  `saved/aram-mayhem`), the app shows no augments at all. Until then, verified: the augment panel
-  (`src/lib/components/Augments.svelte`, fixed in b59c3a2) showed only u.gg's order (rank,
-  icon, name), the backend never filled augment stats (`games`, `win_rate`, `pick_rate`
-  always 0 in `src-tauri/src/ugg.rs`; u.gg publishes none) and no other component showed
-  augment numbers. If ARAM Mayhem ever comes back from that branch, keep it ranking-only.
+  websites, applications and overlays." ARAM / ARAM Mayhem support is removed
+  (owner decision; code kept on branch `saved/aram-mayhem`), so the app shows no
+  augments. The old augment panel never showed win rates. If that branch is
+  restored, keep augments as a ranking only.
   Arena (queues 1700/1710) isn't supported at all (`Queue::from_lcu_queue_id` maps it to
   nothing, so no Arena data is fetched or shown).
 
@@ -332,7 +329,7 @@ must keep changing only the slot's `perks` field (never the champion, skin or sp
 - README: no longer claims the import sets summoner spells; no longer tells you to run the
   app as administrator; new "Will this get me banned?" section.
 - Done elsewhere (main, same day, owner decisions): augment win rates never shown
-  (b59c3a2); ARAM / ARAM Mayhem removal in progress (owner decision, saved on `saved/aram-mayhem`);
+  (b59c3a2); ARAM / ARAM Mayhem removed in 0.1.3 (code saved on `saved/aram-mayhem`);
   auto-import is exactly one attempt at lock-in, never retried (6e411c7), and **off by
   default** (f2a195d).
 

@@ -51,7 +51,7 @@ Covered:
   duplicated; empty item-set document for new accounts.
 - Dodge → new champ select → imports again, once (matchup build if the
   opponent is known at lock-in).
-- ARAM, ARAM Mayhem (2400, 2450): once per champion; bench swap re-imports.
+- ARAM (450) and ARAM Mayhem (2400, 2450): unsupported. Nothing is imported.
 - League closes mid-select, crashes during the import, or restarts with a new
   password → no panic, status "not connected", champ select cleared. A
   dropped connection after lock-in + reconnect into the same champ select →
@@ -165,10 +165,10 @@ If a champ select ends early (someone dodges), the next champ select imports
 once again when you lock in.
 
 **D. ARAM / ARAM Mayhem**
-1. Join an ARAM or ARAM Mayhem game. When champ select starts, the app imports
-   `CSH: <Champion> ARAM` without you doing anything.
-2. Reroll or swap with the bench: it imports for the new champion.
-3. ARAM Mayhem: the augment list stays visible in the app during the game.
+1. Join an ARAM or ARAM Mayhem game. The app says the mode isn't supported and
+   imports nothing.
+2. Reroll or swap with the bench: still nothing is written.
+3. Your rune pages and item sets are unchanged.
 
 **E. Item sets**
 In the client (Collection → Items, or the in-game shop) your own item sets are

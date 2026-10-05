@@ -111,7 +111,6 @@ struct LastImport {
 struct ImportTask {
     champion_id: u32,
     identity: Option<String>,
-    queue: Queue,
     /// `Watcher::generation` when it started.
     generation: u64,
     handle: JoinHandle<Outcome>,
@@ -125,7 +124,7 @@ enum Outcome {
     /// Nothing was written: no build from u.gg, the champ select ended, or
     /// the client didn't answer the last check.
     NothingWritten(String),
-    /// My champion changed (trade, ARAM swap) before anything was written.
+    /// My champion changed (a trade) before anything was written.
     ChampionChanged,
 }
 
@@ -384,8 +383,7 @@ impl Watcher {
     /// Import runes + item set exactly once per champ select, when the local
     /// player locks in, using the lane opponent known at that moment. Later
     /// changes (enemy locks, trades, the user editing pages) never trigger a
-    /// re-import. ARAM has no lock-in: there, a champion change from a
-    /// reroll / bench swap counts as a new pick and is imported once.
+    /// re-import.
     ///
     /// The build is fetched and imported in the background (`ImportJob`).
     async fn auto_import<R: Runtime>(
@@ -407,7 +405,7 @@ impl Watcher {
         }
         // The lane opponent is guessed from the roles: give their first load
         // a moment rather than importing without the opponent.
-        if !queue.is_aram() && self.roles_pending() {
+        if self.roles_pending() {
             return;
         }
         let settings = state.settings.read().await.clone();
@@ -441,7 +439,6 @@ impl Watcher {
         self.import_task = Some(ImportTask {
             champion_id,
             identity,
-            queue,
             generation,
             handle: tokio::spawn(job.run()),
         });
@@ -453,12 +450,7 @@ impl Watcher {
         }
         let done = match outcome {
             Ok(Outcome::Imported) => true,
-            // ARAM: the new champion is a new pick (imported next poll).
-            Ok(Outcome::ChampionChanged) if task.queue.is_aram() => {
-                self.last_import = None;
-                return;
-            }
-            // Draft: a trade before the import landed. Once per champ select:
+            // A trade before the import landed. Once per champ select:
             // nothing for the traded champion (manual Import is there).
             Ok(Outcome::ChampionChanged) => {
                 self.log("Auto-import skipped: my champion changed first".into());
@@ -635,15 +627,9 @@ fn near_champ_select(phase: &str) -> bool {
 
 /// Should the locked-in champion be auto-imported now, given what was
 /// already imported in this champ select?
-fn import_due(last: Option<&LastImport>, champion_id: u32, queue: Queue) -> bool {
-    let Some(last) = last else { return true };
-    // Draft/blind: once per champ select. ARAM: once per champion.
-    let same_pick = !queue.is_aram() || last.champion_id == champion_id;
-    if !same_pick {
-        return true;
-    }
-    // Already attempted (or in flight) for this pick: one chance only.
-    false
+fn import_due(last: Option<&LastImport>, _champion_id: u32, _queue: Queue) -> bool {
+    // Once per champ select. A later champion change (a trade) is not imported.
+    last.is_none()
 }
 
 /// "This champ select was auto-imported (or auto-import was off at lock-in)",
@@ -720,7 +706,7 @@ mod tests {
     #[test]
     fn first_lock_imports() {
         assert!(import_due(None, 83, Queue::RankedSolo));
-        assert!(import_due(None, 83, Queue::Aram));
+        assert!(import_due(None, 83, Queue::Swiftplay));
     }
 
     #[test]
@@ -729,13 +715,6 @@ mod tests {
         assert!(!import_due(Some(&done), 83, Queue::RankedSolo));
         // Even if the champion changes later (trade), no re-import.
         assert!(!import_due(Some(&done), 86, Queue::RankedSolo));
-    }
-
-    #[test]
-    fn aram_imports_once_per_champion() {
-        let done = last(83);
-        assert!(!import_due(Some(&done), 83, Queue::Aram));
-        assert!(import_due(Some(&done), 22, Queue::Aram));
     }
 
     #[test]

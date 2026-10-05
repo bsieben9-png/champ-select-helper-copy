@@ -32,7 +32,6 @@ use crate::model::*;
 use crate::ugg::Ugg;
 
 const RANDOM_MATCHUP_BUILDS: usize = 30;
-const RANDOM_ARAM_BUILDS: usize = 20;
 /// Stat shard rows as in the client (offense, flex, defense).
 const SHARD_ROWS: [&[u32]; 3] = [
     &[5008, 5005, 5007],
@@ -258,24 +257,8 @@ fn check_build(b: &Build, k: &Known) -> Vec<String> {
         p.push(format!("bad skill priority {:?}", b.skill_priority));
     }
 
-    // Augments (ARAM Mayhem only).
-    if b.queue != Queue::AramMayhem && !b.augments.is_empty() {
-        p.push(format!("{} augments outside ARAM Mayhem", b.augments.len()));
-    }
-    let mut seen = HashSet::new();
-    for a in &b.augments {
-        if a.name.trim().is_empty() || a.icon.is_empty() {
-            p.push(format!("augment {} has no name/icon", a.id));
-        }
-        if !matches!(a.rarity.as_str(), "prismatic" | "gold" | "silver") {
-            p.push(format!("augment {} has rarity {:?}", a.id, a.rarity));
-        }
-        if !seen.insert(a.id) {
-            p.push(format!("augment {} listed twice", a.id));
-        }
-        if !rate_ok(a.win_rate) || !rate_ok(a.pick_rate) {
-            p.push(format!("augment {} rates out of range", a.id));
-        }
+    if !b.augments.is_empty() {
+        p.push(format!("{} augments on a build; ARAM Mayhem was removed", b.augments.len()));
     }
     p
 }
@@ -483,7 +466,7 @@ async fn live_sweep() {
         }
     }
 
-    // Tier lists: every role + ARAM.
+    // Tier lists: every role.
     for role in Role::ALL {
         let ctx = format!("tier list {role:?}");
         match ugg.tier_list(role, Queue::RankedSolo, &settings).await {
@@ -500,20 +483,6 @@ async fn live_sweep() {
                 .push(format!("{ctx}: ERROR {e:#}")),
         }
     }
-    match ugg.tier_list(Role::Top, Queue::Aram, &settings).await {
-        Ok(list) => {
-            let mut r = report.lock().unwrap();
-            r.tier_lists += 1;
-            let problems = check_tier_list(&list, &known);
-            r.fail("tier list ARAM", problems);
-        }
-        Err(e) => report
-            .lock()
-            .unwrap()
-            .failures
-            .push(format!("tier list ARAM: ERROR {e:#}")),
-    }
-
     // Every champion × every role it has.
     let concurrency = env_usize("CSH_SWEEP_CONCURRENCY").unwrap_or(4).max(1);
     let gate = Arc::new(Semaphore::new(concurrency));
@@ -697,43 +666,6 @@ async fn live_sweep() {
         }
     }
 
-    // Random ARAM / ARAM Mayhem builds.
-    let mut aram_builds = 0;
-    let mut mayhem_with_augments = 0;
-    for i in 0..RANDOM_ARAM_BUILDS {
-        let champ = champions[rng.below(champions.len())];
-        let queue = if i % 2 == 0 {
-            Queue::AramMayhem
-        } else {
-            Queue::Aram
-        };
-        let ctx = format!("{} ({champ}) {queue:?}", known.name(champ));
-        match ugg.build(champ, None, None, queue, &settings).await {
-            Ok(b) => {
-                aram_builds += 1;
-                let mut problems = check_build(&b, &known);
-                if b.role.is_some() || b.opponent_id.is_some() {
-                    problems.push(format!("role {:?} / opponent {:?}", b.role, b.opponent_id));
-                }
-                if queue == Queue::AramMayhem {
-                    if b.augments.is_empty() {
-                        problems.push("no Mayhem augments".into());
-                    } else {
-                        mayhem_with_augments += 1;
-                    }
-                }
-                let mut r = report.lock().unwrap();
-                r.builds += 1;
-                r.fail(&ctx, problems);
-            }
-            Err(e) => report
-                .lock()
-                .unwrap()
-                .failures
-                .push(format!("{ctx}: ERROR {e:#}")),
-        }
-    }
-
     let r = report.lock().unwrap();
     println!("\n=== live sweep summary ({:.0?}) ===", started.elapsed());
     println!(
@@ -745,8 +677,7 @@ async fn live_sweep() {
         r.tier_lists
     );
     println!(
-        "random matchup builds: {matchup_builds} ({matchup_fell_back} fell back to general) | \
-         ARAM/Mayhem builds: {aram_builds} ({mayhem_with_augments} Mayhem with augments)"
+        "random matchup builds: {matchup_builds} ({matchup_fell_back} fell back to general)"
     );
     println!(
         "general builds whose perks u.gg lists out of slot order: {} of {}",
